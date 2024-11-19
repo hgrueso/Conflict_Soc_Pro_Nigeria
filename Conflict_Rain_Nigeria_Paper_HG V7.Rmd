@@ -1,0 +1,3063 @@
+---
+Title: "Protecting Children from Conflict: How Cash Transfers Make a Difference"
+Author: Hernando Grueso
+Output: Conflict_Rain_Paper_HG
+---
+
+Creation: 20/03/2024
+Update: 05/11/2024
+
+Data Sources: 
+1) MICS: https://mics.unicef.org/surveys
+2) Conflict Data from Nigeria: https://ucdp.uu.se/country/475
+3) Climate Data: Google Earth Engine https://code.earthengine.google.com/?project=ee-hernandogrueso 
+---
+<!-- # 1) Code I used to download soil moisture from Google Earth Engine: -->
+<!-- // Define the area of interest (Nigeria) -->
+<!-- var nigeria = ee.FeatureCollection("USDOS/LSIB_SIMPLE/2017") -->
+<!--                .filter(ee.Filter.eq('country_na', 'Nigeria')); -->
+
+<!-- // Define the expanded time range (January 2018 to December 2021) -->
+<!-- var startDate = '2018-01-01'; -->
+<!-- var endDate = '2021-12-31'; -->
+
+<!-- // Load the Soil Moisture dataset -->
+<!-- var soilMoisture = ee.ImageCollection('NASA_USDA/HSL/SMAP10KM_soil_moisture') -->
+<!--                      .filterDate(startDate, endDate) -->
+<!--                      .select('ssm'); -->
+
+<!-- // Mask out any areas with no data -->
+<!-- var maskNoData = function(image) { -->
+<!--   return image.updateMask(image.gt(0)); -->
+<!-- }; -->
+
+<!-- soilMoisture = soilMoisture.map(maskNoData); -->
+
+<!-- // Calculate the monthly mean soil moisture for each month in the date range -->
+<!-- var monthlySoilMoisture = ee.ImageCollection( -->
+<!--   ee.List.sequence(0, ee.Date(endDate).difference(ee.Date(startDate), 'month').subtract(1)).map(function(n) { -->
+<!--     var start = ee.Date(startDate).advance(n, 'month'); -->
+<!--     var end = start.advance(1, 'month'); -->
+<!--     return soilMoisture.filterDate(start, end) -->
+<!--       .mean() -->
+<!--       .set('system:time_start', start.millis()) -->
+<!--       .set('month', start.get('month')) -->
+<!--       .set('year', start.get('year')); -->
+<!--   }) -->
+<!-- ); -->
+
+<!-- // Clip to Nigeria -->
+<!-- monthlySoilMoisture = monthlySoilMoisture.map(function(image) { -->
+<!--   return image.clip(nigeria); -->
+<!-- }); -->
+
+<!-- // Convert the collection to a list of images -->
+<!-- var monthlySoilMoistureList = monthlySoilMoisture.toList(monthlySoilMoisture.size()); -->
+
+<!-- // Export the images to Google Drive for each month -->
+<!-- for (var i = 0; i < monthlySoilMoistureList.size().getInfo(); i++) { -->
+<!--   var img = ee.Image(monthlySoilMoistureList.get(i)); -->
+<!--   var date = ee.Date(img.get('system:time_start')).format('YYYY-MM').getInfo(); -->
+<!--   Export.image.toDrive({ -->
+<!--     image: img, -->
+<!--     description: 'Nigeria_Soil_Moisture_Mean_' + date, -->
+<!--     folder: 'soil_moisture_gee', -->
+<!--     scale: 10000, -->
+<!--     region: nigeria.geometry().bounds(), -->
+<!--     fileFormat: 'GeoTIFF' -->
+<!--   }); -->
+<!-- } -->
+
+<!-- # 2) And this is the code I used to download rainfall data -->
+<!-- // Define the area of interest (Nigeria) -->
+<!-- var nigeria = ee.FeatureCollection("USDOS/LSIB_SIMPLE/2017") -->
+<!--                .filter(ee.Filter.eq('country_na', 'Nigeria')); -->
+
+<!-- // Define the expanded time range (January 2011 to December 2021) -->
+<!-- var startDate = '2011-01-01'; -->
+<!-- var endDate = '2022-01-01'; -->
+
+<!-- // Load the CHIRPS Daily Precipitation dataset -->
+<!-- var rainfall = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY') -->
+<!--                 .filterDate(startDate, endDate) -->
+<!--                 .select('precipitation'); -->
+
+<!-- // Mask out any areas with no data (optional: can be used if needed) -->
+<!-- var maskNoData = function(image) { -->
+<!--   return image.updateMask(image.gt(0)); -->
+<!-- }; -->
+
+<!-- rainfall = rainfall.map(maskNoData); -->
+
+<!-- // Calculate the monthly total rainfall for each month in the date range -->
+<!-- var monthlyRainfall = ee.ImageCollection( -->
+<!--   ee.List.sequence(0, ee.Date(endDate).difference(ee.Date(startDate), 'month').subtract(1)).map(function(n) { -->
+<!--     var start = ee.Date(startDate).advance(n, 'month'); -->
+<!--     var end = start.advance(1, 'month'); -->
+<!--     return rainfall.filterDate(start, end) -->
+<!--       .sum()  // Sum to get total rainfall for the month -->
+<!--       .set('system:time_start', start.millis()) -->
+<!--       .set('month', start.get('month')) -->
+<!--       .set('year', start.get('year')); -->
+<!--   }) -->
+<!-- ); -->
+
+<!-- // Clip to Nigeria -->
+<!-- monthlyRainfall = monthlyRainfall.map(function(image) { -->
+<!--   return image.clip(nigeria); -->
+<!-- }); -->
+
+<!-- // Convert the collection to a list of images -->
+<!-- var monthlyRainfallList = monthlyRainfall.toList(monthlyRainfall.size()); -->
+
+<!-- // Export the images to Google Drive for each month -->
+<!-- for (var i = 0; i < monthlyRainfallList.size().getInfo(); i++) { -->
+<!--   var img = ee.Image(monthlyRainfallList.get(i)); -->
+<!--   var date = ee.Date(img.get('system:time_start')).format('YYYY-MM').getInfo(); -->
+<!--   Export.image.toDrive({ -->
+<!--     image: img, -->
+<!--     description: 'Nigeria_Rainfall_Total_' + date, -->
+<!--     folder: 'rainfall_gee', -->
+<!--     scale: 5000,  // Adjust the scale to fit your resolution needs -->
+<!--     region: nigeria.geometry().bounds(), -->
+<!--     fileFormat: 'GeoTIFF' -->
+<!--   }); -->
+<!-- } -->
+---
+
+### 1. Data Preparation ###
+
+A. Install Required Packages
+```{r}
+# List of packages to install
+packages <- c("haven", "stargazer", "modelsummary", "ivreg", "bnlearn", "Rgraphviz", "lattice", "gdata", "gRain", "AER", "naijR", "readr", "sf", "rnaturalearth", "rnaturalearthdata", "ggplot2", "dplyr", "geosphere", "survey", "stargazer", "MatchIt", "broom", "cobalt", "lubridate", "units", "sf", "grf", "kableExtra", "texreg", "gstat", "modelsummary", "glue", "ivprobit")
+
+# Find which packages are not installed
+packages_to_install <- setdiff(packages, installed.packages()[,"Package"])
+
+# Install the missing packages
+if(length(packages_to_install)) install.packages(packages_to_install)
+
+```
+
+B. Define Directory
+```{r}
+# Defining Directory:
+groupDir <- "C:/Users/hgruesohurtado/Dropbox/Documents/Laboral/Oxford/Climate, Conflicts, & Pandemics/Data/"
+
+```
+
+C. Import Data
+```{r}
+### Conflict Data ###
+library(readr)
+conf_nga <- read_csv("Conflict/gedevents-2024-03-20.csv")
+
+### Climate Data ###
+library(raster)
+library(sf)
+library(dplyr)
+library(utils)
+
+# Extract Soil Moisture
+# Define the directory where the rainfall zip file is located
+zip_file <- "Climate/Drought/soil_moisture_gee.zip"
+unzip_dir <- "Climate/Drought/soil_moisture_gee_unzipped"
+
+# Unzip the folder
+unzip(zip_file, exdir = unzip_dir)
+
+# List all soil moisture files in the unzipped directory for 2018, 2019, 2020, and 2021
+file_list <- list.files(unzip_dir, pattern = "Nigeria_Soil_Moisture_Mean_201[89]-.*\\.tif$|Nigeria_Soil_Moisture_Mean_202[01]-.*\\.tif$", full.names = TRUE)
+
+# Print the number of files and file names for confirmation
+print(paste("Number of .tif files found:", length(file_list)))
+print("File names:")
+print(file_list)
+
+# Load all soil moisture rasters into a stack
+soil_moisture_stack <- stack(file_list)
+
+# Extract Rainfall
+# Define the directory where the rainfall zip file is located
+zip_file <- "Climate/Drought/rainfall_gee.zip"  # Update path to the rainfall zip file
+unzip_dir <- "Climate/Drought/rainfall_gee_unzipped"
+
+# Unzip the folder
+unzip(zip_file, exdir = unzip_dir)
+
+# List all rainfall files in the unzipped directory from 2011 to 2021
+# Updated regex pattern to include all years from 2011 to 2021
+file_list <- list.files(unzip_dir, pattern = "Nigeria_Rainfall_Total_201[1-9]-.*\\.tif$|Nigeria_Rainfall_Total_202[01]-.*\\.tif$", full.names = TRUE)
+
+# Print the number of files and file names for confirmation
+print(paste("Number of .tif files found:", length(file_list)))
+print("File names:")
+print(file_list)
+
+# Load all rainfall rasters into a stack
+rainfall_stack <- stack(file_list)
+
+# Print information about the rainfall stack for confirmation
+print(rainfall_stack)
+
+### MICS ###
+# MICS Geocodes
+library(haven)
+zip_path <- "MICS/Nigeria MICS5 2016-17 spatial data.zip"
+zip_file <- "Anonymised_cluster_geocodes.sav"
+geocode_16 <- read_sav(unzip(zip_path, files = zip_file))
+zip_path <- "MICS/Nigeria MICS6 2021 spatial data.zip"
+geocode_21 <- read_sav(unzip(zip_path, files = zip_file))
+
+# MICS Survey
+zip_path <- "MICS/Nigeria MICS5 Datasets.zip"
+zip_file <- "Nigeria MICS5 Datasets/Nigeria MICS 2016-17 SPSS Datasets/hh.sav"
+nga_hh_16 <- read_sav(unzip(zip_path, files = zip_file))
+zip_file <- "Nigeria MICS5 Datasets/Nigeria MICS 2016-17 SPSS Datasets/hl.sav"
+nga_hl_16 <- read_sav(unzip(zip_path, files = zip_file))
+zip_file <- "Nigeria MICS5 Datasets/Nigeria MICS 2016-17 SPSS Datasets/wm.sav"
+nga_wm_16 <- read_sav(unzip(zip_path, files = zip_file))
+zip_file <- "Nigeria MICS5 Datasets/Nigeria MICS 2016-17 SPSS Datasets/mn.sav"
+nga_mn_16 <- read_sav(unzip(zip_path, files = zip_file))
+zip_file <- "Nigeria MICS5 Datasets/Nigeria MICS 2016-17 SPSS Datasets/ch.sav"
+nga_ch_16 <- read_sav(unzip(zip_path, files = zip_file))
+
+zip_path <- "MICS/Nigeria MICS6 Datasets.zip"
+zip_file <- "Nigeria MICS6 Datasets/Nigeria MICS6 SPSS Datasets/hh.sav"
+nga_hh_21 <- read_sav(unzip(zip_path, files = zip_file))
+zip_file <- "Nigeria MICS6 Datasets/Nigeria MICS6 SPSS Datasets/hl.sav"
+nga_hl_21 <- read_sav(unzip(zip_path, files = zip_file))
+zip_file <- "Nigeria MICS6 Datasets/Nigeria MICS6 SPSS Datasets/wm.sav"
+nga_wm_21 <- read_sav(unzip(zip_path, files = zip_file))
+zip_file <- "Nigeria MICS6 Datasets/Nigeria MICS6 SPSS Datasets/mn.sav"
+nga_mn_21 <- read_sav(unzip(zip_path, files = zip_file))
+zip_file <- "Nigeria MICS6 Datasets/Nigeria MICS6 SPSS Datasets/ch.sav"
+nga_ch_21 <- read_sav(unzip(zip_path, files = zip_file))
+
+```
+
+D.1 Clean-Up & Merge Data Sets
+```{r}
+### Conflict data ###
+# Year
+conf_nga$year <- substr(conf_nga$source_date, 1, 4)
+
+# Date
+conf_nga$date <- substr(conf_nga$source_date, 1, 10)
+conf_nga$source_date <- NULL
+
+# Remove "," in low-est 
+conf_nga$low_est <- sub(",$", "", conf_nga$low_est)
+
+### MICS 2021 ###
+# Merge survey with geocodes at the cluster level (geo-codes are defined at the cluster level)
+nga_hh_21 <- merge(nga_hh_21, geocode_21, by = "HH1")
+nga_hh_16 <- merge(nga_hh_16, geocode_16, by = "HH1")
+
+# replace variable names
+names(nga_hh_21)[names(nga_hh_21) == "Latitude"] <- "latitude"
+names(nga_hh_21)[names(nga_hh_21) == "Longitude"] <- "longitude"
+
+#----2.1 Rename Vars with Weird Names----
+names(nga_hh_21)[names(nga_hh_21) == "ST3$1"] <- "ST3A"
+names(nga_hh_21)[names(nga_hh_21) == "ST3$2"] <- "ST3B"
+names(nga_hh_21)[names(nga_hh_21) == "ST3$3"] <- "ST3C"
+names(nga_hh_21)[names(nga_hh_21) == "ST3$4"] <- "ST3D"
+names(nga_hh_21)[names(nga_hh_21) == "ST4U$1"] <- "ST4A"
+names(nga_hh_21)[names(nga_hh_21) == "ST4U$2"] <- "ST4B"
+names(nga_hh_21)[names(nga_hh_21) == "ST4U$3"] <- "ST4C"
+names(nga_hh_21)[names(nga_hh_21) == "ST4U$4"] <- "ST4D"
+names(nga_hh_21)[names(nga_hh_21) == "ST4N$1"] <- "ST4A_M"
+names(nga_hh_21)[names(nga_hh_21) == "ST4N$2"] <- "ST4B_M"
+names(nga_hh_21)[names(nga_hh_21) == "ST4N$3"] <- "ST4C_M"
+names(nga_hh_21)[names(nga_hh_21) == "ST4N$4"] <- "ST4D_M"
+
+# Create new variables
+nga_hh_21$christian <- ifelse(nga_hh_21$HC1A==1,1,0)
+nga_hh_21$muslim <- ifelse(nga_hh_21$HC1A==2,1,0)
+nga_hh_21$traditional <- ifelse(nga_hh_21$HC1A==3,1,0)
+
+#----2.2 Keep variables of interest----
+# List of variables without NAs in nga_hl_21
+complete_vars <- sapply(nga_hl_21, function(x) sum(is.na(x)) == 0)
+names(nga_hl_21)[complete_vars]
+
+vars <- c("HH1", # Cluster Number
+          "helevel", # Head of Household Education
+          "HH2", # Household Number
+          "HH6", # 1=urban, 2=rural 
+          "HH48", # Household size
+          "HH7", # Province
+          "FE1", # During the last 1 year, was there a time when you or others in your household worried about not having enough food to eat because of a lack of money or other resources?: 1=Yes, 2=No, 8=DK 
+          "FE1A", # Was this specifically due to the COVID-19 crisis?: 1=Yes, 2=No, 8=DK
+          "FE1B", # Did this happen in the last 1 month?: 1=Yes, 2=No, 8=DK
+          "FE2", # During the last 1 year, was there a time when you or others in your household were unable to eat healthy and nutritious food because of a lack of money or other resources?: 1=Yes, 2=No, 8=DK 
+          "FE2A", # Was this specifically due to the COVID-19 crisis?: 1=Yes, 2=No, 8=DK
+          "FE2B", # Did this happen in the last 1 month?: 1=Yes, 2=No, 8=DK
+          "FE3", # During the last 1 year, was there a time when you or others in your household ate only a few kinds of foods because of a lack of money or other resources?: 1=Yes, 2=No, 8=DK 
+          "FE3A", # Was this specifically due to the COVID-19 crisis?: 1=Yes, 2=No, 8=DK
+          "FE3B", # Did this happen in the last 1 month?: 1=Yes, 2=No, 8=DK
+          "FE4", # During the last 1 year, was there a time when you or others in your household had to skip a meal because there was not enough money or other resources to get food?: 1=Yes, 2=No, 8=DK 
+          "FE4A", # Was this specifically due to the COVID-19 crisis?: 1=Yes, 2=No, 8=DK
+          "FE4B", # Did this happen in the last 1 month?: 1=Yes, 2=No, 8=DK
+          "FE5", # During the last 1 year, was there a time when you or others in your household ate less than you thought you should because of a lack of money or other resources?: 1=Yes, 2=No, 8=DK 
+          "FE5A", # Was this specifically due to the COVID-19 crisis?: 1=Yes, 2=No, 8=DK
+          "FE5B", # Did this happen in the last 1 month?: 1=Yes, 2=No, 8=DK
+          "FE6", # During the last 1 year, was there a time when your household ran out of food because of a lack of money or other resources?: 1=Yes, 2=No, 8=DK 
+          "FE6A", # Was this specifically due to the COVID-19 crisis?: 1=Yes, 2=No, 8=DK
+          "FE6B", # Did this happen in the last 1 month?: 1=Yes, 2=No, 8=DK
+          "FE6C", #How often did this happen during the last 1 month? Would you say: rarely, sometimes or often?
+          "FE7", # During the last 1 year, was there a time when you or others in your household were hungry but did not eat because there was not enough money or other resources for food?: 1=Yes, 2=No, 8=DK 
+          "FE7A", # Was this specifically due to the COVID-19 crisis?: 1=Yes, 2=No, 8=DK
+          "FE7B", # Did this happen in the last 1 month?: 1=Yes, 2=No, 8=DK
+          "FE7C", #How often did this happen during the last 1 month? Would you say: rarely, sometimes or often?
+          "FE8", # During the last 1 year, was there a time when you or others in your household went without eating for a whole day because of a lack of money or other resources?: 1=Yes, 2=No, 8=DK 
+          "FE8A", # Was this specifically due to the COVID-19 crisis?: 1=Yes, 2=No, 8=DK
+          "FE8B", # Did this happen in the last 1 month?: 1=Yes, 2=No, 8=DK
+          "FE8C", #How often did this happen during the last 1 month? Would you say: rarely, sometimes or often?
+          "ST3A", # Has your household or anyone in your household received assistance through: N-POWER CONDITIONAL CASH TRANSFER?: 1=Yes, 2=No, 8=DK 
+          "ST3B", # Has your household or anyone in your household received assistance through: HOUSEHOLD UPLIFTING PROGRAMME (HUP) –“BETA DON COME”?: 1=Yes, 2=No, 8=DK 
+          "ST3C", # Has your household or anyone in your household received assistance through: ANY RETIREMENT PENSION?: 1=Yes, 2=No, 8=DK
+          "ST3D", # Has your household or anyone in your household received assistance through: ANY OTHER EXTERNAL ASSISTANCE PROGRAMME?: 1=Yes, 2=No, 8=DK
+          "ST4A", # When was the last time your household or anyone in your household received assistance through: N-POWER CONDITIONAL CASH TRANSFER?: 1=months ago, 2=years ago, 9=dk
+          "ST4B", # When was the last time your household or anyone in your household received assistance through: HOUSEHOLD UPLIFTING PROGRAMME (HUP) –“BETA DON COME”?: 1=months ago, 2=years ago, 9=dk
+          "ST4C", # When was the last time your household or anyone in your household received assistance through: ANY RETIREMENT PENSION?: 1=months ago, 2=years ago, 9=dk
+          "ST4D", # When was the last time your household or anyone in your household received assistance through: ANY OTHER EXTERNAL ASSISTANCE PROGRAMME?: 1=months ago, 2=years ago, 9=dk
+          "ST4A_M", # No. of months
+          "ST4B_M", # No. of months
+          "ST4C_M", # No. of months
+          "ST4D_M", # No. of months
+          "Displaced",
+          "christian", # Religion
+          "muslim", # Religion
+          "traditional", # Religion
+          "ethnicity", # Ethnic group
+          "GEONAME",
+          "GEONAMES",
+          "GEONAMET",
+          "latitude",
+          "longitude") 
+
+nga_hh_21 <- nga_hh_21[, vars] # Subset of relevant variables
+
+vars <- c("HH1", # Cluster Number
+          "HH2", # Household Number
+          "windex5",
+          "PSU",
+          "stratum",
+          "hhweight",
+          "HL3", # Household relationship
+          "HL10", # Child (Age<4)
+          "HL11", # Child (Age<17)
+          "HH5D", # Day of the interview
+          "HH5M", # Month of the interview
+          "HH5Y", # Month of the interview
+          "zone", # Geographic zone
+          "schage", #Age of school-going household members
+          "ED16A", # 41=Higher/Tertiary Education, ... , 21=Junior Secondary
+          "ED6", # Did you complete that grade/year?: 1=Yes, 2=No
+          "HL6", # Age
+          "HL4", # 1=male, 2=female
+          "ED15", # At any time during the previous (2019-2020) school year did you attend formal school or any Early Childhood Education programme?: 1=Yes, 2=No, 9=DK
+          "ED9", # At any time during the current (2020-2021) school year did you attend formal school or any Early Childhood Education programme?: 1=Yes, 2=No, 9=DK
+          "ED5A", # Highest Level of Education Attended 
+          "HL1", # Head of Household, HL1==1
+          "ED12") # In the current (2020-2021) school year, have you received any school tuition support?: 1=Yes, 2=No, 8=DK
+nga_hl_21 <- nga_hl_21[, vars] # Subset of relevant variables
+
+vars <- c("HH1", # Cluster Number
+          "HH2", # Household Number
+          "LN", # Household Member Line Number
+          "windex5", #Wealth index quintile 
+          "PSU",
+          "stratum",
+          "wmweight",
+          "UN2", # If currently pregnant, did you wanted to get pregnant? 1= Yes, 2=No
+          "DB2", # If ever pregnant, did you wanted to get pregnant at that time? 1= Yes, 2=No
+          "WB6A", # 41=Higher/Tertiary Education, ... , 21=Junior Secondary
+          "WB7", # Did you complete that grade/year?: 1=Yes, 2=No
+          "WB4C", # Age
+          "WB9", # At any time during the current school year did  you attend school?
+          "WB11", # At any time during the previous school year did you attend school
+          "MA8Y", # When did you get married?
+          "MA11", # How old were you when you started living with your (husband/partner)?
+          "WM6D", # Interview day
+          "WM6M", # Interview month
+          "WM6Y", # Inteview year
+          "CP2", #Currently on contraception?
+          "SB3", #Last time you had sex was a condom used?
+          "SB4", #"5=sex worker"
+          "LS1", # Taking all things together, would you say you are (1) very happy, (2) somewhat happy, (3) neither happy nor unhappy, (4) somewhat unhappy or (5) very unhappy
+          "LS3") # Compared to this time last year, would you say that your life has (1) improved, (2) stayed more or less the same, or (3) worsened, overall? 
+nga_wm_21 <- nga_wm_21[, vars] # Subset of relevant variables
+
+vars <- c("HH1", # Cluster Number
+          "HH2", # Household Number
+          "LN", # Household Member Line Number
+          "windex5", #Wealth index quintile 
+          "PSU",
+          "stratum",
+          "mnweight",
+          "MWB6A", # 41=Higher/Tertiary Education, ... , 21=Junior Secondary
+          "MWB7", # Did you complete that grade/year?: 1=Yes, 2=No
+          "MWB4", # Age
+          "MWB9", # At any time during the current school year did  you attend school?
+          "MWB11", # At any time during the previous school year did you attend school
+          "MMA8Y", # When did you get married?
+          "MMA11", # How old were you when you started living with your (husband/partner)?
+          "MLS1", # Taking all things together, would you say you are (1) very happy, (2) somewhat happy, (3) neither happy nor unhappy, (4) somewhat unhappy or (5) very unhappy
+          "MLS3") # Compared to this time last year, would you say that your life has (1) improved, (2) stayed more or less the same, or (3) worsened, overall?
+nga_mn_21 <- nga_mn_21[, vars] # Subset of relevant variables
+
+vars <- c("HH1", # Cluster Number
+          "HH2", # Household Number
+          "windex5",
+          "PSU",
+          "stratum",
+          "chweight",
+          "UB1Y", # Birth Year
+          "UB2", # Age
+          "UB6", # Have you ever attended any early childhood education programme?
+          "UB7", # At any time since September 2020 did you attend the above mentioned programme?
+          "BR1", # Do you have a birth certificate? 1=Yes, seen, 2=Yes, not seen, 3=No, 8=DK
+          "IM2", # . Do you have a child health card / vaccination card or immunisation records from a private health provider or any other document where (name)’s vaccinations are written down? 1=YES, HAS ONLY CARD(S), 2=YES, HAS ONLY OTHER DOCUMENT, 3=YES, HAS CARD(S) AND OTHER DOCUMENT, 4=NO, HAS NO CARDS AND NO OTHER DOCUMENT
+          "IM6BY", # Date of immunization
+          "IM6H0Y",
+          "IM6IY",
+          "IM6MVY",
+          "IM6N1Y",
+          "IM6N2Y",
+          "IM6P0Y",
+          "IM6P1Y",
+          "IM6P2Y",
+          "IM6P3Y",
+          "IM6PCV1Y",
+          "IM6PCV2Y",
+          "IM6PCV3Y",
+          "IM6PENTA1Y",   
+          "IM6PENTA2Y",
+          "IM6PENTA3Y",
+          "IM6Z1Y",
+          "IM6Z2Y",
+          "IM6YY",
+          "UF7D", # Interview Day
+          "UF7M", # Interview Month
+          "UF7Y", # Interview Year
+          "UB8", # Currently attending childhood education?
+          "EC3A", # On how many days during the last week was the child left alone for more than an hour?
+          "EC3B", # On how many days during the last week was the child left in care of another child that is less than 10 years old?
+          "EC5AY", # During the past 3 days, did you or any household member older that 15 engaged with: reading books?
+          "EC5BY", # During the past 3 days, did you or any household member older that 15 engaged with: story telling?
+          "EC5CY", # During the past 3 days, did you or any household member older that 15 engaged with: singing?
+          "EC5DY", # During the past 3 days, did you or any household member older that 15 engaged with: going outside?
+          "EC5EY", # During the past 3 days, did you or any household member older that 15 engaged with: playing?
+          "EC39", # How often does the child seem sad or depressed?
+          "EC40", # How often does he/she display aggresive behavior?
+          "UCD2F", # During the last month, have you: spanked or hit your child?
+          "UCD2G", # During the last month, have you: hit your child with an object?
+          "UCD2H", # During the last month, have you: called your child dumb, lazy, or another name?
+          "UCD2I", # During the last month, have you: hit or slapped your child's face?        
+          "UCD2J", # During the last month, have you: hit or slapped your child's leg?
+          "UCD2K" # During the last month, have you: bitten up your child?
+          ) 
+nga_ch_21 <- nga_ch_21[, vars] # Subset of relevant variables
+
+#----2.3 Merge Data Sets----
+# Specify NAs of Head of Household Education
+nga_hh_21$helevel[nga_hh_21$helevel>4] <- NA
+
+## Merging ##
+# Household Members     
+nga_hl_21 <- merge(nga_hl_21, nga_hh_21, by = c("HH1", "HH2")) # Add household level vars 
+
+# Women      
+nga_wm_21 <- merge(nga_wm_21, nga_hh_21, by = c("HH1", "HH2")) # Add household level vars
+
+# Men
+nga_mn_21 <- merge(nga_mn_21, nga_hh_21, by = c("HH1", "HH2")) # Add household level vars
+
+# Children (under 5)
+nga_ch_21 <- merge(nga_ch_21, nga_hh_21, by = c("HH1", "HH2")) # Add household level vars
+
+# Removed non-used data sets
+rm(nga_hh_21)
+
+#----2.4 Clean Household Members Data Set----
+# survey weight
+names(nga_hl_21)[names(nga_hl_21) == "hhweight"] <- "weight"
+
+# Household received any social transfer or benefit
+nga_hl_21$ST3A[nga_hl_21$ST3A>2] <- NA
+nga_hl_21$ST3B[nga_hl_21$ST3B>2] <- NA
+nga_hl_21$ST3C[nga_hl_21$ST3C>2] <- NA
+nga_hl_21$ST3D[nga_hl_21$ST3D>2] <- NA
+
+nga_hl_21$ST3A[nga_hl_21$ST3A==2] <- 0
+nga_hl_21$ST3B[nga_hl_21$ST3B==2] <- 0
+nga_hl_21$ST3C[nga_hl_21$ST3C==2] <- 0
+nga_hl_21$ST3D[nga_hl_21$ST3D==2] <- 0
+
+nga_hl_21$soc_pro <- ifelse(nga_hl_21$ST3A==1, 1, NA)
+nga_hl_21$soc_pro[is.na(nga_hl_21$soc_pro) & nga_hl_21$ST3A==0] <- 0
+nga_hl_21$soc_pro[is.na(nga_hl_21$soc_pro) & nga_hl_21$ST3B==1] <- 1
+nga_hl_21$soc_pro[is.na(nga_hl_21$soc_pro) & nga_hl_21$ST3B==0] <- 0
+nga_hl_21$soc_pro[is.na(nga_hl_21$soc_pro) & nga_hl_21$ST3C==1] <- 1
+nga_hl_21$soc_pro[is.na(nga_hl_21$soc_pro) & nga_hl_21$ST3C==0] <- 0
+nga_hl_21$soc_pro[is.na(nga_hl_21$soc_pro) & nga_hl_21$ST3D==1] <- 1
+nga_hl_21$soc_pro[is.na(nga_hl_21$soc_pro) & nga_hl_21$ST3D==0] <- 0
+
+# Household Size
+names(nga_hl_21)[names(nga_hl_21) == "HH48"] <- "size"
+
+# No. of social protection programs received
+nga_hl_21$soc_pro_n <- ifelse(is.na(nga_hl_21$ST3A), 0, nga_hl_21$ST3A) + ifelse(is.na(nga_hl_21$ST3B), 0, nga_hl_21$ST3B) + ifelse(is.na(nga_hl_21$ST3C), 0, nga_hl_21$ST3C)
+
+# No. of social protection programs received / No. of people in the household
+nga_hl_21$soc_pro_pc <- nga_hl_21$soc_pro_n/nga_hl_21$size
+
+# Total No. of months since last assistance 
+nga_hl_21$ST4A[nga_hl_21$ST4A>2] <- NA
+nga_hl_21$ST4B[nga_hl_21$ST4B>2] <- NA
+nga_hl_21$ST4C[nga_hl_21$ST4C>2] <- NA
+nga_hl_21$ST4D[nga_hl_21$ST4D>2] <- NA
+
+nga_hl_21$ST4A_M[nga_hl_21$ST4A_M==99] <- NA
+nga_hl_21$ST4B_M[nga_hl_21$ST4B_M==98] <- NA
+nga_hl_21$ST4C_M[nga_hl_21$ST4C_M==98] <- NA
+nga_hl_21$ST4D_M[nga_hl_21$ST4D_M==98] <- NA
+
+nga_hl_21$soc_cash_m <- nga_hl_21$ST4A*nga_hl_21$ST4A_M
+nga_hl_21$soc_hup_m <- nga_hl_21$ST4B*nga_hl_21$ST4B_M
+nga_hl_21$soc_pension_m <- nga_hl_21$ST4C*nga_hl_21$ST4C_M
+nga_hl_21$soc_other_m <- nga_hl_21$ST4D*nga_hl_21$ST4D_M
+
+# Received Cash Transfer
+names(nga_hl_21)[names(nga_hl_21) == "ST3A"] <- "soc_cash"
+
+# Received HOUSEHOLD UPLIFTING PROGRAMME (HUP) –“BETA DON COME”
+names(nga_hl_21)[names(nga_hl_21) == "ST3B"] <- "soc_hup"
+
+# Received a retirement pension
+names(nga_hl_21)[names(nga_hl_21) == "ST3C"] <- "soc_pension"
+
+# Received any other assistance
+names(nga_hl_21)[names(nga_hl_21) == "ST3D"] <- "soc_other"
+
+# Received tuition aid
+names(nga_hl_21)[names(nga_hl_21) == "ED12"] <- "soc_tuition"
+
+nga_hl_21$ST4A <- NULL
+nga_hl_21$ST4B <- NULL
+nga_hl_21$ST4C <- NULL
+nga_hl_21$ST4D <- NULL
+
+nga_hl_21$ST4A_M <- NULL
+nga_hl_21$ST4B_M <- NULL
+nga_hl_21$ST4C_M <- NULL
+nga_hl_21$ST4D_M <- NULL
+
+# Total No. of months since last assistance (including multiple but excluding school tuition)
+nga_hl_21$soc_m <- pmin(nga_hl_21$soc_cash_m, nga_hl_21$soc_hup_m, nga_hl_21$soc_pension_m, nga_hl_21$soc_other_m, na.rm = TRUE)
+
+# Rural
+nga_hl_21$rural <- ifelse(nga_hl_21$HH6==1,1,NA)
+nga_hl_21$rural[nga_hl_21$HH6==2] <- 0
+nga_hl_21$HH6 <- NULL 
+
+# Household Size
+names(nga_hl_21)[names(nga_hl_21) == "HH48"] <- "size"
+
+# State
+names(nga_hl_21)[names(nga_hl_21) == "HH7"] <- "state"
+
+# Age
+names(nga_hl_21)[names(nga_hl_21) == "HL6"] <- "age"
+
+# Female
+nga_hl_21$female <- ifelse(nga_hl_21$HL4==2,1,NA)
+nga_hl_21$female[nga_hl_21$HL4==1] <- 0
+nga_hl_21$HL4 <- NULL 
+
+# School Attendance in 2020-2021
+nga_hl_21$ED9[nga_hl_21$ED9>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "ED9"] <- "school20"
+nga_hl_21$school20[nga_hl_21$school20==2] <- 0
+
+# School Attendance in 2019-2020
+nga_hl_21$ED15[nga_hl_21$ED15>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "ED15"] <- "school19"
+nga_hl_21$school19[nga_hl_21$school19==2] <- 0
+
+# School Dropout
+nga_hl_21$ED16A[nga_hl_21$ED16A>41] <- NA
+nga_hl_21$ED6[nga_hl_21$ED6>2] <- NA
+nga_hl_21$school_drop <- ifelse(nga_hl_21$school20==0 & nga_hl_21$ED16A<41 & nga_hl_21$ED6==2, 1, NA)
+nga_hl_21$school_drop[nga_hl_21$school20==1 & nga_hl_21$school19==1] <- 0
+nga_hl_21$school_drop[nga_hl_21$school20==1 & nga_hl_21$school19==1 & nga_hl_21$ED16A>21 & nga_hl_21$ED6==1] <- 0
+nga_hl_21$ED16A <- NULL
+nga_hl_21$ED6 <- NULL
+
+# Household relationship
+nga_hl_21$HL3[nga_hl_21$HL3>14] <- NA
+
+# Child (Age<17)
+names(nga_hl_21)[names(nga_hl_21) == "HL11"] <- "child"
+nga_hl_21$child[nga_hl_21$child==2] <- 0
+
+# Interview day
+nga_hl_21$int_day <- nga_hl_21$date <- as.Date(paste(nga_hl_21$HH5Y, nga_hl_21$HH5M, nga_hl_21$HH5D, sep = "-"), format = "%Y-%m-%d")
+nga_hl_21$HH5Y <- NULL
+nga_hl_21$HH5M <- NULL
+nga_hl_21$HH5D <- NULL
+
+#--Food Insecurity & COVID--#
+# 1) Food insecurity: worried about not having enough food to eat because of a lack of money or other resources
+nga_hl_21$FE1[nga_hl_21$FE1>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE1"] <- "food1_20"
+nga_hl_21$food1_20[nga_hl_21$food1_20==2] <- 0
+# Was this due to COVID-19?
+nga_hl_21$FE1A[nga_hl_21$FE1A>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE1A"] <- "food1_covid"
+nga_hl_21$food1_covid[nga_hl_21$food1_covid==2] <- 0
+# Did this happen during the last month?
+nga_hl_21$FE1B[nga_hl_21$FE1B>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE1B"] <- "food1_21"
+nga_hl_21$food1_21[nga_hl_21$food1_21==2] <- 0
+
+# 2) Food insecurity: were unable to eat healthy and nutritious food because of a lack of money or other resources
+nga_hl_21$FE2[nga_hl_21$FE2>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE2"] <- "food2_20"
+nga_hl_21$food2_20[nga_hl_21$food2_20==2] <- 0
+# Was this due to COVID-19?
+nga_hl_21$FE2A[nga_hl_21$FE2A>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE2A"] <- "food2_covid"
+nga_hl_21$food2_covid[nga_hl_21$food2_covid==2] <- 0
+# Did this happen during the last month?
+nga_hl_21$FE2B[nga_hl_21$FE2B>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE2B"] <- "food2_21"
+nga_hl_21$food2_21[nga_hl_21$food2_21==2] <- 0
+
+# 3) Food insecurity: ate only a few kinds of foods because of a lack of money or other resources
+nga_hl_21$FE3[nga_hl_21$FE3>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE3"] <- "food3_20"
+nga_hl_21$food3_20[nga_hl_21$food3_20==2] <- 0
+# Was this due to COVID-19?
+nga_hl_21$FE3A[nga_hl_21$FE3A>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE3A"] <- "food3_covid"
+nga_hl_21$food3_covid[nga_hl_21$food3_covid==2] <- 0
+# Did this happen during the last month?
+nga_hl_21$FE3B[nga_hl_21$FE3B>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE3B"] <- "food3_21"
+nga_hl_21$food3_21[nga_hl_21$food3_21==2] <- 0
+
+# 4) Food insecurity:  skip a meal because there was not enough money or other resources to get food
+nga_hl_21$FE4[nga_hl_21$FE4>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE4"] <- "food4_20"
+nga_hl_21$food4_20[nga_hl_21$food4_20==2] <- 0
+# Was this due to COVID-19?
+nga_hl_21$FE4A[nga_hl_21$FE4A>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE4A"] <- "food4_covid"
+nga_hl_21$food4_covid[nga_hl_21$food4_covid==2] <- 0
+# Did this happen during the last month?
+nga_hl_21$FE4B[nga_hl_21$FE4B>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE4B"] <- "food4_21"
+nga_hl_21$food4_21[nga_hl_21$food4_21==2] <- 0
+
+# 5) Food insecurity: ate less than you thought you should because of a lack of money or other resources
+nga_hl_21$FE5[nga_hl_21$FE5>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE5"] <- "food5_20"
+nga_hl_21$food5_20[nga_hl_21$food5_20==2] <- 0
+# Was this due to COVID-19?
+nga_hl_21$FE5A[nga_hl_21$FE5A>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE5A"] <- "food5_covid"
+nga_hl_21$food5_covid[nga_hl_21$food5_covid==2] <- 0
+# Did this happen during the last month?
+nga_hl_21$FE5B[nga_hl_21$FE5B>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE5B"] <- "food5_21"
+nga_hl_21$food5_21[nga_hl_21$food5_21==2] <- 0
+
+# 6) Food insecurity: ran out of food because of a lack of money or other resources
+nga_hl_21$FE6[nga_hl_21$FE6>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE6"] <- "food6_20"
+nga_hl_21$food6_20[nga_hl_21$food6_20==2] <- 0
+# Was this due to COVID-19?
+nga_hl_21$FE6A[nga_hl_21$FE6A>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE6A"] <- "food6_covid"
+nga_hl_21$food6_covid[nga_hl_21$food6_covid==2] <- 0
+# Did this happen during the last month?
+nga_hl_21$FE6B[nga_hl_21$FE6B>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE6B"] <- "food6_21"
+nga_hl_21$food6_21[nga_hl_21$food6_21==2] <- 0
+# Intensity: How often did this happen during the last 1 month? Would you say: 1=rarely, 2=sometimes or 3=often?
+nga_hl_21$FE6C[nga_hl_21$FE6C>3] <- NA
+nga_hl_21$food6_int_21 <- ifelse(nga_hl_21$food6_21==1,nga_hl_21$FE6C,0)
+nga_hl_21$FE6C <- NULL
+
+# 7) Food insecurity: were hungry but did not eat because there was not enough money or other resources for food
+nga_hl_21$FE7[nga_hl_21$FE7>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE7"] <- "food7_20"
+nga_hl_21$food7_20[nga_hl_21$food7_20==2] <- 0
+# Was this due to COVID-19?
+nga_hl_21$FE7A[nga_hl_21$FE7A>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE7A"] <- "food7_covid"
+nga_hl_21$food7_covid[nga_hl_21$food7_covid==2] <- 0
+# Did this happen during the last month?
+nga_hl_21$FE7B[nga_hl_21$FE7B>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE7B"] <- "food7_21"
+nga_hl_21$food7_21[nga_hl_21$food7_21==2] <- 0
+# Intensity: How often did this happen during the last 1 month? Would you say: 1=rarely, 2=sometimes or 3=often?
+nga_hl_21$FE7C[nga_hl_21$FE7C>3] <- NA
+nga_hl_21$food7_int_21 <- ifelse(nga_hl_21$food7_21==1,nga_hl_21$FE7C,0)
+nga_hl_21$FE7C <- NULL
+
+# 8) Food insecurity: went without eating for a whole day because of a lack of money or other resources
+nga_hl_21$FE8[nga_hl_21$FE8>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE8"] <- "food8_20"
+nga_hl_21$food8_20[nga_hl_21$food8_20==2] <- 0
+# Was this due to COVID-19?
+nga_hl_21$FE8A[nga_hl_21$FE8A>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE8A"] <- "food8_covid"
+nga_hl_21$food8_covid[nga_hl_21$food8_covid==2] <- 0
+# Did this happen during the last month?
+nga_hl_21$FE8B[nga_hl_21$FE8B>2] <- NA
+names(nga_hl_21)[names(nga_hl_21) == "FE8B"] <- "food8_21"
+nga_hl_21$food8_21[nga_hl_21$food8_21==2] <- 0
+# Intensity: How often did this happen during the last 1 month? Would you say: 1=rarely, 2=sometimes or 3=often?
+nga_hl_21$FE8C[nga_hl_21$FE8C>3] <- NA
+nga_hl_21$food8_int_21 <- ifelse(nga_hl_21$food8_21==1,nga_hl_21$FE8C,0)
+nga_hl_21$FE8C <- NULL
+
+# Food insecurity intensity in 2020
+nga_hl_21$food_20 <- ifelse(nga_hl_21$food1_20==0,0,NA)
+nga_hl_21$food_20[nga_hl_21$food1_20==1] <- 1
+nga_hl_21$food_20[nga_hl_21$food2_20==1] <- 2
+nga_hl_21$food_20[nga_hl_21$food3_20==1] <- 3
+nga_hl_21$food_20[nga_hl_21$food4_20==1] <- 4
+nga_hl_21$food_20[nga_hl_21$food5_20==1] <- 5
+nga_hl_21$food_20[nga_hl_21$food6_20==1] <- 6
+nga_hl_21$food_20[nga_hl_21$food7_20==1] <- 7
+nga_hl_21$food_20[nga_hl_21$food8_20==1] <- 8
+
+# Food insecurity intensity in 2021
+nga_hl_21$food_21 <- ifelse(nga_hl_21$food1_21==0,0,NA)
+nga_hl_21$food_21[nga_hl_21$food1_21==1] <- 1
+nga_hl_21$food_21[nga_hl_21$food2_21==1] <- 2
+nga_hl_21$food_21[nga_hl_21$food3_21==1] <- 3
+nga_hl_21$food_21[nga_hl_21$food4_21==1] <- 4
+nga_hl_21$food_21[nga_hl_21$food5_21==1] <- 5
+nga_hl_21$food_21[nga_hl_21$food6_21==1] <- 6
+nga_hl_21$food_21[nga_hl_21$food7_21==1] <- 7
+nga_hl_21$food_21[nga_hl_21$food8_21==1] <- 8
+
+# Create exclusive social protection variables
+nga_hl_21 <- nga_hl_21 %>%
+  mutate(
+    soc_cash2 = ifelse(soc_cash == 1 & (is.na(soc_pension) | soc_pension == 0) & (is.na(soc_hup) | soc_hup == 0), 1, 0),
+    soc_pension2 = ifelse((is.na(soc_cash) | soc_cash == 0) & soc_pension == 1 & (is.na(soc_hup) | soc_hup == 0), 1, 0),
+    soc_hup2 = ifelse((is.na(soc_cash) | soc_cash == 0) & (is.na(soc_pension) | soc_pension == 0) & soc_hup == 1, 1, 0)
+  )
+
+# Compute soc_pro variable considering NA values
+nga_hl_21 <- nga_hl_21 %>%
+  mutate(
+    soc_pro2 = rowSums(select(., soc_cash, soc_pension, soc_hup), na.rm = TRUE),
+    soc_pro = ifelse(is.na(soc_cash) & is.na(soc_pension) & is.na(soc_hup), NA, soc_pro)
+  )
+
+#----2.5 Clean Women Data Set----
+# survey weight
+names(nga_wm_21)[names(nga_wm_21) == "wmweight"] <- "weight"
+
+# Household received any social transfer or benefit
+nga_wm_21$ST3A[nga_wm_21$ST3A>2] <- NA
+nga_wm_21$ST3B[nga_wm_21$ST3B>2] <- NA
+nga_wm_21$ST3C[nga_wm_21$ST3C>2] <- NA
+nga_wm_21$ST3D[nga_wm_21$ST3D>2] <- NA
+
+nga_wm_21$ST3A[nga_wm_21$ST3A==2] <- 0
+nga_wm_21$ST3B[nga_wm_21$ST3B==2] <- 0
+nga_wm_21$ST3C[nga_wm_21$ST3C==2] <- 0
+nga_wm_21$ST3D[nga_wm_21$ST3D==2] <- 0
+
+nga_wm_21$soc_pro <- ifelse(nga_wm_21$ST3A==1, 1, NA)
+nga_wm_21$soc_pro[is.na(nga_wm_21$soc_pro) & nga_wm_21$ST3A==0] <- 0
+nga_wm_21$soc_pro[is.na(nga_wm_21$soc_pro) & nga_wm_21$ST3B==1] <- 1
+nga_wm_21$soc_pro[is.na(nga_wm_21$soc_pro) & nga_wm_21$ST3B==0] <- 0
+nga_wm_21$soc_pro[is.na(nga_wm_21$soc_pro) & nga_wm_21$ST3C==1] <- 1
+nga_wm_21$soc_pro[is.na(nga_wm_21$soc_pro) & nga_wm_21$ST3C==0] <- 0
+nga_wm_21$soc_pro[is.na(nga_wm_21$soc_pro) & nga_wm_21$ST3D==1] <- 1
+nga_wm_21$soc_pro[is.na(nga_wm_21$soc_pro) & nga_wm_21$ST3D==0] <- 0
+
+# Household Size
+names(nga_wm_21)[names(nga_wm_21) == "HH48"] <- "size"
+
+# No. of social protection programs received
+nga_wm_21$soc_pro_n <- ifelse(is.na(nga_wm_21$ST3A), 0, nga_wm_21$ST3A) + ifelse(is.na(nga_wm_21$ST3B), 0, nga_wm_21$ST3B) + ifelse(is.na(nga_wm_21$ST3C), 0, nga_wm_21$ST3C)
+
+# No. of social protection programs received / No. of people in the household
+nga_wm_21$soc_pro_pc <- nga_wm_21$soc_pro_n/nga_wm_21$size
+
+# Total No. of months since last assistance 
+nga_wm_21$ST4A[nga_wm_21$ST4A>2] <- NA
+nga_wm_21$ST4B[nga_wm_21$ST4B>2] <- NA
+nga_wm_21$ST4C[nga_wm_21$ST4C>2] <- NA
+nga_wm_21$ST4D[nga_wm_21$ST4D>2] <- NA
+
+nga_wm_21$ST4A_M[nga_wm_21$ST4A_M==99] <- NA
+nga_wm_21$ST4B_M[nga_wm_21$ST4B_M==98] <- NA
+nga_wm_21$ST4C_M[nga_wm_21$ST4C_M==98] <- NA
+nga_wm_21$ST4D_M[nga_wm_21$ST4D_M==98] <- NA
+
+nga_wm_21$soc_cash_m <- nga_wm_21$ST4A*nga_wm_21$ST4A_M
+nga_wm_21$soc_hup_m <- nga_wm_21$ST4B*nga_wm_21$ST4B_M
+nga_wm_21$soc_pension_m <- nga_wm_21$ST4C*nga_wm_21$ST4C_M
+nga_wm_21$soc_other_m <- nga_wm_21$ST4D*nga_wm_21$ST4D_M
+
+# Received Cash Transfer
+names(nga_wm_21)[names(nga_wm_21) == "ST3A"] <- "soc_cash"
+
+# Received HOUSEHOLD UPLIFTING PROGRAMME (HUP) –“BETA DON COME”
+names(nga_wm_21)[names(nga_wm_21) == "ST3B"] <- "soc_hup"
+
+# Received a retirement pension
+names(nga_wm_21)[names(nga_wm_21) == "ST3C"] <- "soc_pension"
+
+# Received any other assistance
+names(nga_wm_21)[names(nga_wm_21) == "ST3D"] <- "soc_other"
+
+# Received tuition aid
+names(nga_wm_21)[names(nga_wm_21) == "ED12"] <- "soc_tuition"
+
+nga_wm_21$ST4A <- NULL
+nga_wm_21$ST4B <- NULL
+nga_wm_21$ST4C <- NULL
+nga_wm_21$ST4D <- NULL
+
+nga_wm_21$ST4A_M <- NULL
+nga_wm_21$ST4B_M <- NULL
+nga_wm_21$ST4C_M <- NULL
+nga_wm_21$ST4D_M <- NULL
+
+# Total No. of months since last assistance (including multiple but excluding school tuition)
+nga_wm_21$soc_m <- pmin(nga_wm_21$soc_cash_m, nga_wm_21$soc_hup_m, nga_wm_21$soc_pension_m, nga_wm_21$soc_other_m, na.rm = TRUE)
+
+# Rural
+nga_wm_21$rural <- ifelse(nga_wm_21$HH6==1,1,NA)
+nga_wm_21$rural[nga_wm_21$HH6==2] <- 0
+nga_wm_21$HH6 <- NULL 
+
+# State
+names(nga_wm_21)[names(nga_wm_21) == "HH7"] <- "state"
+
+# Age
+names(nga_wm_21)[names(nga_wm_21) == "WB4C"] <- "age"
+
+# School Attendance in 2020-2021
+nga_wm_21$WB9[nga_wm_21$WB9>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "WB9"] <- "school20"
+nga_wm_21$school20[nga_wm_21$school20==2] <- 0
+
+# School Attendance in 2019-2020
+nga_wm_21$WB11[nga_wm_21$WB11>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "WB11"] <- "school19"
+nga_wm_21$school19[nga_wm_21$school19==2] <- 0
+
+# School Dropout
+nga_wm_21$WB6A[nga_wm_21$WB6A>41] <- NA
+nga_wm_21$WB7[nga_wm_21$WB7>2] <- NA
+nga_wm_21$school_drop <- ifelse(nga_wm_21$school20==0 & nga_wm_21$school19==1 & nga_wm_21$WB6A<41 & nga_wm_21$WB7==2, 1, NA)
+nga_wm_21$school_drop[nga_wm_21$school20==1 & nga_wm_21$school19==1] <- 0
+nga_wm_21$school_drop[nga_wm_21$school20==0 & nga_wm_21$school19==1 & nga_wm_21$WB6>21 & nga_wm_21$WB7==1] <- 0
+nga_wm_21$WB6A <- NULL
+nga_wm_21$WB7 <- NULL
+
+# Child Marriage
+nga_wm_21$MA8Y[nga_wm_21$MA8Y>9997] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "MA8Y"] <- "marriage_date"
+
+nga_wm_21$MA11[nga_wm_21$MA11==99] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "MA11"] <- "marriage_age"
+
+nga_wm_21$marriage_child <- ifelse(nga_wm_21$marriage_age<19,1,0)
+
+# Mental health
+nga_wm_21$LS1[nga_wm_21$LS1>9] <- NA
+nga_wm_21$happiness_20 <- ifelse(nga_wm_21$LS1==1,2,NA)
+nga_wm_21$happiness_20[nga_wm_21$LS1==2] <- 1
+nga_wm_21$happiness_20[nga_wm_21$LS1==3] <- 0
+nga_wm_21$happiness_20[nga_wm_21$LS1==4] <- -1
+nga_wm_21$happiness_20[nga_wm_21$LS1==5] <- -2
+nga_wm_21$LS1 <- NULL
+
+nga_wm_21$LS3[nga_wm_21$LS3>9] <- NA
+nga_wm_21$happiness_change <- ifelse(nga_wm_21$LS3==2,0,NA)
+nga_wm_21$happiness_change[nga_wm_21$LS3==1] <- 1
+nga_wm_21$happiness_change[nga_wm_21$LS3==3] <- -1
+nga_wm_21$LS3 <- NULL
+
+# Calculate Proxy for Happiness 2021:
+nga_wm_21$happiness_21 <- nga_wm_21$happiness_20+nga_wm_21$happiness_change
+
+#--Food Insecurity & COVID--#
+# 1) Food insecurity: worried about not having enough food to eat because of a lack of money or other resources
+nga_wm_21$FE1[nga_wm_21$FE1>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE1"] <- "food1_20"
+nga_wm_21$food1_20[nga_wm_21$food1_20==2] <- 0
+# Was this due to COVID-19?
+nga_wm_21$FE1A[nga_wm_21$FE1A>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE1A"] <- "food1_covid"
+nga_wm_21$food1_covid[nga_wm_21$food1_covid==2] <- 0
+# Did this happen during the last month?
+nga_wm_21$FE1B[nga_wm_21$FE1B>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE1B"] <- "food1_21"
+nga_wm_21$food1_21[nga_wm_21$food1_21==2] <- 0
+
+# 2) Food insecurity: were unable to eat healthy and nutritious food because of a lack of money or other resources
+nga_wm_21$FE2[nga_wm_21$FE2>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE2"] <- "food2_20"
+nga_wm_21$food2_20[nga_wm_21$food2_20==2] <- 0
+# Was this due to COVID-19?
+nga_wm_21$FE2A[nga_wm_21$FE2A>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE2A"] <- "food2_covid"
+nga_wm_21$food2_covid[nga_wm_21$food2_covid==2] <- 0
+# Did this happen during the last month?
+nga_wm_21$FE2B[nga_wm_21$FE2B>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE2B"] <- "food2_21"
+nga_wm_21$food2_21[nga_wm_21$food2_21==2] <- 0
+
+# 3) Food insecurity: ate only a few kinds of foods because of a lack of money or other resources
+nga_wm_21$FE3[nga_wm_21$FE3>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE3"] <- "food3_20"
+nga_wm_21$food3_20[nga_wm_21$food3_20==2] <- 0
+# Was this due to COVID-19?
+nga_wm_21$FE3A[nga_wm_21$FE3A>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE3A"] <- "food3_covid"
+nga_wm_21$food3_covid[nga_wm_21$food3_covid==2] <- 0
+# Did this happen during the last month?
+nga_wm_21$FE3B[nga_wm_21$FE3B>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE3B"] <- "food3_21"
+nga_wm_21$food3_21[nga_wm_21$food3_21==2] <- 0
+
+# 4) Food insecurity:  skip a meal because there was not enough money or other resources to get food
+nga_wm_21$FE4[nga_wm_21$FE4>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE4"] <- "food4_20"
+nga_wm_21$food4_20[nga_wm_21$food4_20==2] <- 0
+# Was this due to COVID-19?
+nga_wm_21$FE4A[nga_wm_21$FE4A>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE4A"] <- "food4_covid"
+nga_wm_21$food4_covid[nga_wm_21$food4_covid==2] <- 0
+# Did this happen during the last month?
+nga_wm_21$FE4B[nga_wm_21$FE4B>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE4B"] <- "food4_21"
+nga_wm_21$food4_21[nga_wm_21$food4_21==2] <- 0
+
+# 5) Food insecurity: ate less than you thought you should because of a lack of money or other resources
+nga_wm_21$FE5[nga_wm_21$FE5>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE5"] <- "food5_20"
+nga_wm_21$food5_20[nga_wm_21$food5_20==2] <- 0
+# Was this due to COVID-19?
+nga_wm_21$FE5A[nga_wm_21$FE5A>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE5A"] <- "food5_covid"
+nga_wm_21$food5_covid[nga_wm_21$food5_covid==2] <- 0
+# Did this happen during the last month?
+nga_wm_21$FE5B[nga_wm_21$FE5B>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE5B"] <- "food5_21"
+nga_wm_21$food5_21[nga_wm_21$food5_21==2] <- 0
+
+# 6) Food insecurity: ran out of food because of a lack of money or other resources
+nga_wm_21$FE6[nga_wm_21$FE6>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE6"] <- "food6_20"
+nga_wm_21$food6_20[nga_wm_21$food6_20==2] <- 0
+# Was this due to COVID-19?
+nga_wm_21$FE6A[nga_wm_21$FE6A>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE6A"] <- "food6_covid"
+nga_wm_21$food6_covid[nga_wm_21$food6_covid==2] <- 0
+# Did this happen during the last month?
+nga_wm_21$FE6B[nga_wm_21$FE6B>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE6B"] <- "food6_21"
+nga_wm_21$food6_21[nga_wm_21$food6_21==2] <- 0
+# Intensity: How often did this happen during the last 1 month? Would you say: 1=rarely, 2=sometimes or 3=often?
+nga_wm_21$FE6C[nga_wm_21$FE6C>3] <- NA
+nga_wm_21$food6_int_21 <- ifelse(nga_wm_21$food6_21==1,nga_wm_21$FE6C,0)
+nga_wm_21$FE6C <- NULL
+
+# 7) Food insecurity: were hungry but did not eat because there was not enough money or other resources for food
+nga_wm_21$FE7[nga_wm_21$FE7>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE7"] <- "food7_20"
+nga_wm_21$food7_20[nga_wm_21$food7_20==2] <- 0
+# Was this due to COVID-19?
+nga_wm_21$FE7A[nga_wm_21$FE7A>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE7A"] <- "food7_covid"
+nga_wm_21$food7_covid[nga_wm_21$food7_covid==2] <- 0
+# Did this happen during the last month?
+nga_wm_21$FE7B[nga_wm_21$FE7B>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE7B"] <- "food7_21"
+nga_wm_21$food7_21[nga_wm_21$food7_21==2] <- 0
+# Intensity: How often did this happen during the last 1 month? Would you say: 1=rarely, 2=sometimes or 3=often?
+nga_wm_21$FE7C[nga_wm_21$FE7C>3] <- NA
+nga_wm_21$food7_int_21 <- ifelse(nga_wm_21$food7_21==1,nga_wm_21$FE7C,0)
+nga_wm_21$FE7C <- NULL
+
+# 8) Food insecurity: went without eating for a whole day because of a lack of money or other resources
+nga_wm_21$FE8[nga_wm_21$FE8>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE8"] <- "food8_20"
+nga_wm_21$food8_20[nga_wm_21$food8_20==2] <- 0
+# Was this due to COVID-19?
+nga_wm_21$FE8A[nga_wm_21$FE8A>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE8A"] <- "food8_covid"
+nga_wm_21$food8_covid[nga_wm_21$food8_covid==2] <- 0
+# Did this happen during the last month?
+nga_wm_21$FE8B[nga_wm_21$FE8B>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "FE8B"] <- "food8_21"
+nga_wm_21$food8_21[nga_wm_21$food8_21==2] <- 0
+# Intensity: How often did this happen during the last 1 month? Would you say: 1=rarely, 2=sometimes or 3=often?
+nga_wm_21$FE8C[nga_wm_21$FE8C>3] <- NA
+nga_wm_21$food8_int_21 <- ifelse(nga_wm_21$food8_21==1,nga_wm_21$FE8C,0)
+nga_wm_21$FE8C <- NULL
+
+# Food insecurity intensity in 2020
+nga_wm_21$food_20 <- ifelse(nga_wm_21$food1_20==0,0,NA)
+nga_wm_21$food_20[nga_wm_21$food1_20==1] <- 1
+nga_wm_21$food_20[nga_wm_21$food2_20==1] <- 2
+nga_wm_21$food_20[nga_wm_21$food3_20==1] <- 3
+nga_wm_21$food_20[nga_wm_21$food4_20==1] <- 4
+nga_wm_21$food_20[nga_wm_21$food5_20==1] <- 5
+nga_wm_21$food_20[nga_wm_21$food6_20==1] <- 6
+nga_wm_21$food_20[nga_wm_21$food7_20==1] <- 7
+nga_wm_21$food_20[nga_wm_21$food8_20==1] <- 8
+
+# Food insecurity intensity in 2021
+nga_wm_21$food_21 <- ifelse(nga_wm_21$food1_21==0,0,NA)
+nga_wm_21$food_21[nga_wm_21$food1_21==1] <- 1
+nga_wm_21$food_21[nga_wm_21$food2_21==1] <- 2
+nga_wm_21$food_21[nga_wm_21$food3_21==1] <- 3
+nga_wm_21$food_21[nga_wm_21$food4_21==1] <- 4
+nga_wm_21$food_21[nga_wm_21$food5_21==1] <- 5
+nga_wm_21$food_21[nga_wm_21$food6_21==1] <- 6
+nga_wm_21$food_21[nga_wm_21$food7_21==1] <- 7
+nga_wm_21$food_21[nga_wm_21$food8_21==1] <- 8
+
+## Pregnancy
+# Unwanted current pregnancy (after COVID-19?)
+nga_wm_21$UN2[nga_wm_21$UN2>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "UN2"] <- "un_preg_now"
+nga_wm_21$un_preg_now[nga_wm_21$un_preg_now==2] <- 0
+
+# Unwanted previous pregnancy (before COVID-19?)
+nga_wm_21$DB2[nga_wm_21$DB2>2] <- NA
+names(nga_wm_21)[names(nga_wm_21) == "DB2"] <- "un_preg_past"
+nga_wm_21$un_preg_past[nga_wm_21$un_preg_past==2] <- 0
+
+# Interview day
+nga_wm_21$int_day <- nga_wm_21$date <- as.Date(paste(nga_wm_21$WM6Y, nga_wm_21$WM6M, nga_wm_21$WM6D, sep = "-"), format = "%Y-%m-%d")
+nga_wm_21 <- subset(nga_wm_21, !is.na(nga_wm_21$int_day))
+nga_wm_21$WM6Y <- NULL
+nga_wm_21$WM6M <- NULL
+nga_wm_21$WM6D <- NULL
+
+### SHRH ###
+# Using contraception
+nga_wm_21$contracep <- ifelse(nga_wm_21$CP2==1,1,NA)
+nga_wm_21$contracep[nga_wm_21$CP2 == 2] <- 0
+nga_wm_21$CP2 <- NULL
+
+# Condom use    
+nga_wm_21$condom <- ifelse(nga_wm_21$SB3==1,1,NA)
+nga_wm_21$condom[nga_wm_21$SB3 == 2] <- 0
+nga_wm_21$SB3 <- NULL
+
+# Are you currently a sex worker?
+nga_wm_21$sex_worker <- ifelse(nga_wm_21$SB4==5,1,0)
+nga_wm_21$SB4 <- NULL
+
+# Create exclusive social protection variables
+nga_wm_21 <- nga_wm_21 %>%
+  mutate(
+    soc_cash2 = ifelse(soc_cash == 1 & (is.na(soc_pension) | soc_pension == 0) & (is.na(soc_hup) | soc_hup == 0), 1, 0),
+    soc_pension2 = ifelse((is.na(soc_cash) | soc_cash == 0) & soc_pension == 1 & (is.na(soc_hup) | soc_hup == 0), 1, 0),
+    soc_hup2 = ifelse((is.na(soc_cash) | soc_cash == 0) & (is.na(soc_pension) | soc_pension == 0) & soc_hup == 1, 1, 0)
+  )
+
+# Compute soc_pro variable considering NA values
+nga_wm_21 <- nga_wm_21 %>%
+  mutate(
+    soc_pro2 = rowSums(select(., soc_cash, soc_pension, soc_hup), na.rm = TRUE),
+    soc_pro = ifelse(is.na(soc_cash) & is.na(soc_pension) & is.na(soc_hup), NA, soc_pro)
+  )
+
+#----2.6 Clean Men Data Set----
+names(nga_mn_21)[names(nga_mn_21) == "mnweight"] <- "weight"
+
+# Household received any social transfer or benefit
+nga_mn_21$ST3A[nga_mn_21$ST3A>2] <- NA
+nga_mn_21$ST3B[nga_mn_21$ST3B>2] <- NA
+nga_mn_21$ST3C[nga_mn_21$ST3C>2] <- NA
+nga_mn_21$ST3D[nga_mn_21$ST3D>2] <- NA
+
+nga_mn_21$ST3A[nga_mn_21$ST3A==2] <- 0
+nga_mn_21$ST3B[nga_mn_21$ST3B==2] <- 0
+nga_mn_21$ST3C[nga_mn_21$ST3C==2] <- 0
+nga_mn_21$ST3D[nga_mn_21$ST3D==2] <- 0
+
+nga_mn_21$soc_pro <- ifelse(nga_mn_21$ST3A==1, 1, NA)
+nga_mn_21$soc_pro[is.na(nga_mn_21$soc_pro) & nga_mn_21$ST3A==0] <- 0
+nga_mn_21$soc_pro[is.na(nga_mn_21$soc_pro) & nga_mn_21$ST3B==1] <- 1
+nga_mn_21$soc_pro[is.na(nga_mn_21$soc_pro) & nga_mn_21$ST3B==0] <- 0
+nga_mn_21$soc_pro[is.na(nga_mn_21$soc_pro) & nga_mn_21$ST3C==1] <- 1
+nga_mn_21$soc_pro[is.na(nga_mn_21$soc_pro) & nga_mn_21$ST3C==0] <- 0
+nga_mn_21$soc_pro[is.na(nga_mn_21$soc_pro) & nga_mn_21$ST3D==1] <- 1
+nga_mn_21$soc_pro[is.na(nga_mn_21$soc_pro) & nga_mn_21$ST3D==0] <- 0
+
+# Household Size
+names(nga_mn_21)[names(nga_mn_21) == "HH48"] <- "size"
+
+# No. of social protection programs received
+nga_mn_21$soc_pro_n <- ifelse(is.na(nga_mn_21$ST3A), 0, nga_mn_21$ST3A) + ifelse(is.na(nga_mn_21$ST3B), 0, nga_mn_21$ST3B) + ifelse(is.na(nga_mn_21$ST3C), 0, nga_mn_21$ST3C)
+
+# No. of social protection programs received / No. of people in the household
+nga_mn_21$soc_pro_pc <- nga_mn_21$soc_pro_n/nga_mn_21$size
+
+# Total No. of months since last assistance 
+nga_mn_21$ST4A[nga_mn_21$ST4A>2] <- NA
+nga_mn_21$ST4B[nga_mn_21$ST4B>2] <- NA
+nga_mn_21$ST4C[nga_mn_21$ST4C>2] <- NA
+nga_mn_21$ST4D[nga_mn_21$ST4D>2] <- NA
+
+nga_mn_21$ST4A_M[nga_mn_21$ST4A_M==99] <- NA
+nga_mn_21$ST4B_M[nga_mn_21$ST4B_M==98] <- NA
+nga_mn_21$ST4C_M[nga_mn_21$ST4C_M==98] <- NA
+nga_mn_21$ST4D_M[nga_mn_21$ST4D_M==98] <- NA
+
+nga_mn_21$soc_cash_m <- nga_mn_21$ST4A*nga_mn_21$ST4A_M
+nga_mn_21$soc_hup_m <- nga_mn_21$ST4B*nga_mn_21$ST4B_M
+nga_mn_21$soc_pension_m <- nga_mn_21$ST4C*nga_mn_21$ST4C_M
+nga_mn_21$soc_other_m <- nga_mn_21$ST4D*nga_mn_21$ST4D_M
+
+# Received Cash Transfer
+names(nga_mn_21)[names(nga_mn_21) == "ST3A"] <- "soc_cash"
+
+# Received HOUSEHOLD UPLIFTING PROGRAMME (HUP) –“BETA DON COME”
+names(nga_mn_21)[names(nga_mn_21) == "ST3B"] <- "soc_hup"
+
+# Received a retirement pension
+names(nga_mn_21)[names(nga_mn_21) == "ST3C"] <- "soc_pension"
+
+# Received any other assistance
+names(nga_mn_21)[names(nga_mn_21) == "ST3D"] <- "soc_other"
+
+# Received tuition aid
+names(nga_mn_21)[names(nga_mn_21) == "ED12"] <- "soc_tuition"
+
+nga_mn_21$ST4A <- NULL
+nga_mn_21$ST4B <- NULL
+nga_mn_21$ST4C <- NULL
+nga_mn_21$ST4D <- NULL
+
+nga_mn_21$ST4A_M <- NULL
+nga_mn_21$ST4B_M <- NULL
+nga_mn_21$ST4C_M <- NULL
+nga_mn_21$ST4D_M <- NULL
+
+# Total No. of months since last assistance (including multiple but excluding school tuition)
+nga_mn_21$soc_m <- pmin(nga_mn_21$soc_cash_m, nga_mn_21$soc_hup_m, nga_mn_21$soc_pension_m, nga_mn_21$soc_other_m, na.rm = TRUE)
+
+# Rural
+nga_mn_21$rural <- ifelse(nga_mn_21$HH6==1,1,NA)
+nga_mn_21$rural[nga_mn_21$HH6==2] <- 0
+nga_mn_21$HH6 <- NULL 
+
+# State
+names(nga_mn_21)[names(nga_mn_21) == "HH7"] <- "state"
+
+# Age
+names(nga_mn_21)[names(nga_mn_21) == "MWB4"] <- "age"
+
+# School Attendance in 2020-2021
+nga_mn_21$MWB9[nga_mn_21$MWB9>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "MWB9"] <- "school20"
+nga_mn_21$school20[nga_mn_21$school20==2] <- 0
+
+# School Attendance in 2019-2020
+nga_mn_21$MWB11[nga_mn_21$MWB11>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "MWB11"] <- "school19"
+nga_mn_21$school19[nga_mn_21$school19==2] <- 0
+
+# School Dropout
+nga_mn_21$MWB6A[nga_mn_21$MWB6A>41] <- NA
+nga_mn_21$MWB7[nga_mn_21$MWB7>2] <- NA
+nga_mn_21$school_drop <- ifelse(nga_mn_21$school20==0 & nga_mn_21$school19==1 & nga_mn_21$MWB6A<41 & nga_mn_21$MWB7==2, 1, NA)
+nga_mn_21$school_drop[nga_mn_21$school20==1 & nga_mn_21$school19==1] <- 0
+nga_mn_21$school_drop[nga_mn_21$school20==0 & nga_mn_21$school19==1 & nga_mn_21$MWB6>21 & nga_mn_21$MWB7==1] <- 0
+nga_mn_21$MWB6A <- NULL
+nga_mn_21$MWB7 <- NULL
+
+# Child Marriage
+nga_mn_21$MMA8Y[nga_mn_21$MMA8Y>9997] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "MMA8Y"] <- "marriage_date"
+
+nga_mn_21$MMA11[nga_mn_21$MMA11==99] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "MMA11"] <- "marriage_age"
+
+nga_mn_21$marriage_child <- ifelse(nga_mn_21$marriage_age<19,1,0)
+
+# Mental health
+nga_mn_21$MLS1[nga_mn_21$MLS1>9] <- NA
+nga_mn_21$happiness_20 <- ifelse(nga_mn_21$MLS1==1,2,NA)
+nga_mn_21$happiness_20[nga_mn_21$MLS1==2] <- 1
+nga_mn_21$happiness_20[nga_mn_21$MLS1==3] <- 0
+nga_mn_21$happiness_20[nga_mn_21$MLS1==4] <- -1
+nga_mn_21$happiness_20[nga_mn_21$MLS1==5] <- -2
+nga_mn_21$MLS1 <- NULL
+
+nga_mn_21$MLS3[nga_mn_21$MLS3>9] <- NA
+nga_mn_21$happiness_change <- ifelse(nga_mn_21$MLS3==2,0,NA)
+nga_mn_21$happiness_change[nga_mn_21$MLS3==1] <- 1
+nga_mn_21$happiness_change[nga_mn_21$MLS3==3] <- -1
+nga_mn_21$MLS3 <- NULL
+
+# Calculate Proxy for Happiness 2021:
+nga_mn_21$happiness_21 <- nga_mn_21$happiness_20+nga_mn_21$happiness_change
+
+#--Food Insecurity & COVID--#
+# 1) Food insecurity: worried about not having enough food to eat because of a lack of money or other resources
+nga_mn_21$FE1[nga_mn_21$FE1>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE1"] <- "food1_20"
+nga_mn_21$food1_20[nga_mn_21$food1_20==2] <- 0
+# Was this due to COVID-19?
+nga_mn_21$FE1A[nga_mn_21$FE1A>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE1A"] <- "food1_covid"
+nga_mn_21$food1_covid[nga_mn_21$food1_covid==2] <- 0
+# Did this happen during the last month?
+nga_mn_21$FE1B[nga_mn_21$FE1B>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE1B"] <- "food1_21"
+nga_mn_21$food1_21[nga_mn_21$food1_21==2] <- 0
+
+# 2) Food insecurity: were unable to eat healthy and nutritious food because of a lack of money or other resources
+nga_mn_21$FE2[nga_mn_21$FE2>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE2"] <- "food2_20"
+nga_mn_21$food2_20[nga_mn_21$food2_20==2] <- 0
+# Was this due to COVID-19?
+nga_mn_21$FE2A[nga_mn_21$FE2A>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE2A"] <- "food2_covid"
+nga_mn_21$food2_covid[nga_mn_21$food2_covid==2] <- 0
+# Did this happen during the last month?
+nga_mn_21$FE2B[nga_mn_21$FE2B>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE2B"] <- "food2_21"
+nga_mn_21$food2_21[nga_mn_21$food2_21==2] <- 0
+
+# 3) Food insecurity: ate only a few kinds of foods because of a lack of money or other resources
+nga_mn_21$FE3[nga_mn_21$FE3>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE3"] <- "food3_20"
+nga_mn_21$food3_20[nga_mn_21$food3_20==2] <- 0
+# Was this due to COVID-19?
+nga_mn_21$FE3A[nga_mn_21$FE3A>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE3A"] <- "food3_covid"
+nga_mn_21$food3_covid[nga_mn_21$food3_covid==2] <- 0
+# Did this happen during the last month?
+nga_mn_21$FE3B[nga_mn_21$FE3B>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE3B"] <- "food3_21"
+nga_mn_21$food3_21[nga_mn_21$food3_21==2] <- 0
+
+# 4) Food insecurity:  skip a meal because there was not enough money or other resources to get food
+nga_mn_21$FE4[nga_mn_21$FE4>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE4"] <- "food4_20"
+nga_mn_21$food4_20[nga_mn_21$food4_20==2] <- 0
+# Was this due to COVID-19?
+nga_mn_21$FE4A[nga_mn_21$FE4A>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE4A"] <- "food4_covid"
+nga_mn_21$food4_covid[nga_mn_21$food4_covid==2] <- 0
+# Did this happen during the last month?
+nga_mn_21$FE4B[nga_mn_21$FE4B>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE4B"] <- "food4_21"
+nga_mn_21$food4_21[nga_mn_21$food4_21==2] <- 0
+
+# 5) Food insecurity: ate less than you thought you should because of a lack of money or other resources
+nga_mn_21$FE5[nga_mn_21$FE5>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE5"] <- "food5_20"
+nga_mn_21$food5_20[nga_mn_21$food5_20==2] <- 0
+# Was this due to COVID-19?
+nga_mn_21$FE5A[nga_mn_21$FE5A>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE5A"] <- "food5_covid"
+nga_mn_21$food5_covid[nga_mn_21$food5_covid==2] <- 0
+# Did this happen during the last month?
+nga_mn_21$FE5B[nga_mn_21$FE5B>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE5B"] <- "food5_21"
+nga_mn_21$food5_21[nga_mn_21$food5_21==2] <- 0
+
+# 6) Food insecurity: ran out of food because of a lack of money or other resources
+nga_mn_21$FE6[nga_mn_21$FE6>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE6"] <- "food6_20"
+nga_mn_21$food6_20[nga_mn_21$food6_20==2] <- 0
+# Was this due to COVID-19?
+nga_mn_21$FE6A[nga_mn_21$FE6A>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE6A"] <- "food6_covid"
+nga_mn_21$food6_covid[nga_mn_21$food6_covid==2] <- 0
+# Did this happen during the last month?
+nga_mn_21$FE6B[nga_mn_21$FE6B>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE6B"] <- "food6_21"
+nga_mn_21$food6_21[nga_mn_21$food6_21==2] <- 0
+# Intensity: How often did this happen during the last 1 month? Would you say: 1=rarely, 2=sometimes or 3=often?
+nga_mn_21$FE6C[nga_mn_21$FE6C>3] <- NA
+nga_mn_21$food6_int_21 <- ifelse(nga_mn_21$food6_21==1,nga_mn_21$FE6C,0)
+nga_mn_21$FE6C <- NULL
+
+# 7) Food insecurity: were hungry but did not eat because there was not enough money or other resources for food
+nga_mn_21$FE7[nga_mn_21$FE7>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE7"] <- "food7_20"
+nga_mn_21$food7_20[nga_mn_21$food7_20==2] <- 0
+# Was this due to COVID-19?
+nga_mn_21$FE7A[nga_mn_21$FE7A>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE7A"] <- "food7_covid"
+nga_mn_21$food7_covid[nga_mn_21$food7_covid==2] <- 0
+# Did this happen during the last month?
+nga_mn_21$FE7B[nga_mn_21$FE7B>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE7B"] <- "food7_21"
+nga_mn_21$food7_21[nga_mn_21$food7_21==2] <- 0
+# Intensity: How often did this happen during the last 1 month? Would you say: 1=rarely, 2=sometimes or 3=often?
+nga_mn_21$FE7C[nga_mn_21$FE7C>3] <- NA
+nga_mn_21$food7_int_21 <- ifelse(nga_mn_21$food7_21==1,nga_mn_21$FE7C,0)
+nga_mn_21$FE7C <- NULL
+
+# 8) Food insecurity: went without eating for a whole day because of a lack of money or other resources
+nga_mn_21$FE8[nga_mn_21$FE8>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE8"] <- "food8_20"
+nga_mn_21$food8_20[nga_mn_21$food8_20==2] <- 0
+# Was this due to COVID-19?
+nga_mn_21$FE8A[nga_mn_21$FE8A>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE8A"] <- "food8_covid"
+nga_mn_21$food8_covid[nga_mn_21$food8_covid==2] <- 0
+# Did this happen during the last month?
+nga_mn_21$FE8B[nga_mn_21$FE8B>2] <- NA
+names(nga_mn_21)[names(nga_mn_21) == "FE8B"] <- "food8_21"
+nga_mn_21$food8_21[nga_mn_21$food8_21==2] <- 0
+# Intensity: How often did this happen during the last 1 month? Would you say: 1=rarely, 2=sometimes or 3=often?
+nga_mn_21$FE8C[nga_mn_21$FE8C>3] <- NA
+nga_mn_21$food8_int_21 <- ifelse(nga_mn_21$food8_21==1,nga_mn_21$FE8C,0)
+nga_mn_21$FE8C <- NULL
+
+# Food insecurity intensity in 2020
+nga_mn_21$food_20 <- ifelse(nga_mn_21$food1_20==0,0,NA)
+nga_mn_21$food_20[nga_mn_21$food1_20==1] <- 1
+nga_mn_21$food_20[nga_mn_21$food2_20==1] <- 2
+nga_mn_21$food_20[nga_mn_21$food3_20==1] <- 3
+nga_mn_21$food_20[nga_mn_21$food4_20==1] <- 4
+nga_mn_21$food_20[nga_mn_21$food5_20==1] <- 5
+nga_mn_21$food_20[nga_mn_21$food6_20==1] <- 6
+nga_mn_21$food_20[nga_mn_21$food7_20==1] <- 7
+nga_mn_21$food_20[nga_mn_21$food8_20==1] <- 8
+
+# Food insecurity intensity in 2021
+nga_mn_21$food_21 <- ifelse(nga_mn_21$food1_21==0,0,NA)
+nga_mn_21$food_21[nga_mn_21$food1_21==1] <- 1
+nga_mn_21$food_21[nga_mn_21$food2_21==1] <- 2
+nga_mn_21$food_21[nga_mn_21$food3_21==1] <- 3
+nga_mn_21$food_21[nga_mn_21$food4_21==1] <- 4
+nga_mn_21$food_21[nga_mn_21$food5_21==1] <- 5
+nga_mn_21$food_21[nga_mn_21$food6_21==1] <- 6
+nga_mn_21$food_21[nga_mn_21$food7_21==1] <- 7
+nga_mn_21$food_21[nga_mn_21$food8_21==1] <- 8
+
+#----2.7 Clean Children Data Set----
+names(nga_ch_21)[names(nga_ch_21) == "chweight"] <- "weight"
+
+# Household received any social transfer or benefit
+nga_ch_21$ST3A[nga_ch_21$ST3A>2] <- NA
+nga_ch_21$ST3B[nga_ch_21$ST3B>2] <- NA
+nga_ch_21$ST3C[nga_ch_21$ST3C>2] <- NA
+nga_ch_21$ST3D[nga_ch_21$ST3D>2] <- NA
+
+nga_ch_21$ST3A[nga_ch_21$ST3A==2] <- 0
+nga_ch_21$ST3B[nga_ch_21$ST3B==2] <- 0
+nga_ch_21$ST3C[nga_ch_21$ST3C==2] <- 0
+nga_ch_21$ST3D[nga_ch_21$ST3D==2] <- 0
+
+nga_ch_21$soc_pro <- ifelse(nga_ch_21$ST3A==1, 1, NA)
+nga_ch_21$soc_pro[is.na(nga_ch_21$soc_pro) & nga_ch_21$ST3A==0] <- 0
+nga_ch_21$soc_pro[is.na(nga_ch_21$soc_pro) & nga_ch_21$ST3B==1] <- 1
+nga_ch_21$soc_pro[is.na(nga_ch_21$soc_pro) & nga_ch_21$ST3B==0] <- 0
+nga_ch_21$soc_pro[is.na(nga_ch_21$soc_pro) & nga_ch_21$ST3C==1] <- 1
+nga_ch_21$soc_pro[is.na(nga_ch_21$soc_pro) & nga_ch_21$ST3C==0] <- 0
+nga_ch_21$soc_pro[is.na(nga_ch_21$soc_pro) & nga_ch_21$ST3D==1] <- 1
+nga_ch_21$soc_pro[is.na(nga_ch_21$soc_pro) & nga_ch_21$ST3D==0] <- 0
+
+# Household Size
+names(nga_ch_21)[names(nga_ch_21) == "HH48"] <- "size"
+
+# No. of social protection programs received
+nga_ch_21$soc_pro_n <- ifelse(is.na(nga_ch_21$ST3A), 0, nga_ch_21$ST3A) + ifelse(is.na(nga_ch_21$ST3B), 0, nga_ch_21$ST3B) + ifelse(is.na(nga_ch_21$ST3C), 0, nga_ch_21$ST3C)
+
+# No. of social protection programs received / No. of people in the household
+nga_ch_21$soc_pro_pc <- nga_ch_21$soc_pro_n/nga_ch_21$size
+
+# Total No. of months since last assistance 
+nga_ch_21$ST4A[nga_ch_21$ST4A>2] <- NA
+nga_ch_21$ST4B[nga_ch_21$ST4B>2] <- NA
+nga_ch_21$ST4C[nga_ch_21$ST4C>2] <- NA
+nga_ch_21$ST4D[nga_ch_21$ST4D>2] <- NA
+
+nga_ch_21$ST4A_M[nga_ch_21$ST4A_M==99] <- NA
+nga_ch_21$ST4B_M[nga_ch_21$ST4B_M==98] <- NA
+nga_ch_21$ST4C_M[nga_ch_21$ST4C_M==98] <- NA
+nga_ch_21$ST4D_M[nga_ch_21$ST4D_M==98] <- NA
+
+nga_ch_21$soc_cash_m <- nga_ch_21$ST4A*nga_ch_21$ST4A_M
+nga_ch_21$soc_hup_m <- nga_ch_21$ST4B*nga_ch_21$ST4B_M
+nga_ch_21$soc_pension_m <- nga_ch_21$ST4C*nga_ch_21$ST4C_M
+nga_ch_21$soc_other_m <- nga_ch_21$ST4D*nga_ch_21$ST4D_M
+
+# Received Cash Transfer
+names(nga_ch_21)[names(nga_ch_21) == "ST3A"] <- "soc_cash"
+
+# Received HOUSEHOLD UPLIFTING PROGRAMME (HUP) –“BETA DON COME”
+names(nga_ch_21)[names(nga_ch_21) == "ST3B"] <- "soc_hup"
+
+# Received a retirement pension
+names(nga_ch_21)[names(nga_ch_21) == "ST3C"] <- "soc_pension"
+
+# Received any other assistance
+names(nga_ch_21)[names(nga_ch_21) == "ST3D"] <- "soc_other"
+
+# Received tuition aid
+names(nga_ch_21)[names(nga_ch_21) == "ED12"] <- "soc_tuition"
+
+nga_ch_21$ST4A <- NULL
+nga_ch_21$ST4B <- NULL
+nga_ch_21$ST4C <- NULL
+nga_ch_21$ST4D <- NULL
+
+nga_ch_21$ST4A_M <- NULL
+nga_ch_21$ST4B_M <- NULL
+nga_ch_21$ST4C_M <- NULL
+nga_ch_21$ST4D_M <- NULL
+
+# Total No. of months since last assistance (including multiple but excluding school tuition)
+nga_ch_21$soc_m <- pmin(nga_ch_21$soc_cash_m, nga_ch_21$soc_hup_m, nga_ch_21$soc_pension_m, nga_ch_21$soc_other_m, na.rm = TRUE)
+
+# Rural
+nga_ch_21$rural <- ifelse(nga_ch_21$HH6==1,1,NA)
+nga_ch_21$rural[nga_ch_21$HH6==2] <- 0
+nga_ch_21$HH6 <- NULL 
+
+# State
+names(nga_ch_21)[names(nga_ch_21) == "HH7"] <- "state"
+
+# Age
+names(nga_ch_21)[names(nga_ch_21) == "UB2"] <- "age"
+
+# Born after 2019
+nga_ch_21$UB1Y[nga_ch_21$UB1Y==9999] <- NA
+nga_ch_21$born_post19 <- ifelse(nga_ch_21$UB1Y>2019,1,0)
+nga_ch_21$UB1Y <- NULL
+
+# School Attendance in 2020-2021
+nga_ch_21$UB7[nga_ch_21$UB7>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "UB7"] <- "school20"
+nga_ch_21$school20[nga_ch_21$school20==2] <- 0
+
+# School Attendance in 2019-2020
+nga_ch_21$UB6[nga_ch_21$UB6>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "UB6"] <- "school19"
+nga_ch_21$school19[nga_ch_21$school19==2] <- 0
+
+# School Dropout
+nga_ch_21$school_drop <- ifelse(nga_ch_21$school20==0 & nga_ch_21$school19==1, 1, NA)
+nga_ch_21$school_drop[nga_ch_21$school20==1 & nga_ch_21$school19==1] <- 0
+
+# Birth Certificate
+names(nga_ch_21)[names(nga_ch_21) == "BR1"] <- "birth_cert"
+nga_ch_21$birth_cert[nga_ch_21$birth_cert==2] <- 1
+nga_ch_21$birth_cert[nga_ch_21$birth_cert==3] <- 0
+nga_ch_21$birth_cert[nga_ch_21$birth_cert==8] <- NA
+nga_ch_21$birth_cert[nga_ch_21$birth_cert==9] <- NA
+
+# Vaccination card
+names(nga_ch_21)[names(nga_ch_21) == "IM2"] <- "vacs_card"
+nga_ch_21$vacs_card[nga_ch_21$vacs_card==2] <- 1
+nga_ch_21$vacs_card[nga_ch_21$vacs_card==3] <- 1
+nga_ch_21$vacs_card[nga_ch_21$vacs_card==4] <- 0
+nga_ch_21$vacs_card[nga_ch_21$vacs_card==9] <- NA
+
+# Received any immunisation after 2019
+nga_ch_21$IM6BY[nga_ch_21$IM6BY==9999] <- NA
+nga_ch_21$IM6H0Y[nga_ch_21$IM6H0Y==9999] <- NA
+nga_ch_21$IM6IY[nga_ch_21$IM6IY==9999] <- NA
+nga_ch_21$IM6N2Y[nga_ch_21$IM6N2Y==9999] <- NA
+nga_ch_21$IM6P0Y[nga_ch_21$IM6P0Y==9999] <- NA
+nga_ch_21$IM6P1Y[nga_ch_21$IM6P1Y==9999] <- NA
+nga_ch_21$IM6P2Y[nga_ch_21$IM6P2Y==9999] <- NA
+nga_ch_21$IM6P3Y[nga_ch_21$IM6P3Y==9999] <- NA
+nga_ch_21$IM6PCV1Y[nga_ch_21$IM6PCV1Y==9999] <- NA
+nga_ch_21$IM6PCV2Y[nga_ch_21$IM6PCV2Y==9999] <- NA
+nga_ch_21$IM6PCV3Y[nga_ch_21$IM6PCV3Y==9999] <- NA
+nga_ch_21$IM6PENTA1Y[nga_ch_21$IM6PENTA1Y==9999] <- NA
+nga_ch_21$IM6PENTA2Y[nga_ch_21$IM6PENTA2Y==9999] <- NA
+nga_ch_21$IM6PENTA3Y[nga_ch_21$IM6PENTA3Y==9999] <- NA
+nga_ch_21$IM6YY[nga_ch_21$IM6YY==9999] <- NA
+nga_ch_21$IM6Z1Y[nga_ch_21$IM6Z1Y==9999] <- NA
+nga_ch_21$IM6Z2Y[nga_ch_21$IM6Z2Y==9999] <- NA
+
+nga_ch_21$vacs_post20 <- ifelse(nga_ch_21$IM6BY>2020 | 
+                             nga_ch_21$IM6H0Y>2020 |
+                             nga_ch_21$IM6IY>2020 |
+                             nga_ch_21$IM6MVY>2020 |
+                             nga_ch_21$IM6N1Y>2020 |
+                             nga_ch_21$IM6N2Y>2020 |
+                             nga_ch_21$IM6P0Y>2020 |
+                             nga_ch_21$IM6P1Y>2020 |
+                             nga_ch_21$IM6P2Y>2020 |
+                             nga_ch_21$IM6P3Y>2020 |
+                             nga_ch_21$IM6PCV1Y>2020 |
+                             nga_ch_21$IM6PCV2Y>2020 |
+                             nga_ch_21$IM6PCV3Y>2020 |
+                             nga_ch_21$IM6PENTA1Y>2020 |
+                             nga_ch_21$IM6PENTA2Y>2020 |
+                             nga_ch_21$IM6PENTA3Y>2020 |
+                             nga_ch_21$IM6YY>2020 |
+                             nga_ch_21$IM6Z1Y>2020 |
+                             nga_ch_21$IM6Z2Y>2020, 1, 0)
+
+nga_ch_21$vacs_pre21 <- ifelse(nga_ch_21$IM6BY<2021 | 
+                               nga_ch_21$IM6H0Y<2021 |
+                               nga_ch_21$IM6IY<2021 |
+                               nga_ch_21$IM6MVY<2021 |
+                               nga_ch_21$IM6N1Y<2021 |
+                               nga_ch_21$IM6N2Y<2021 |
+                               nga_ch_21$IM6P0Y<2021 |
+                               nga_ch_21$IM6P1Y<2021 |
+                               nga_ch_21$IM6P2Y<2021 |
+                               nga_ch_21$IM6P3Y<2021 |
+                               nga_ch_21$IM6PCV1Y<2021 |
+                               nga_ch_21$IM6PCV2Y<2021 |
+                               nga_ch_21$IM6PCV3Y<2021 |
+                               nga_ch_21$IM6PENTA1Y<2021 |
+                               nga_ch_21$IM6PENTA2Y<2021 |
+                               nga_ch_21$IM6PENTA3Y<2021 |
+                               nga_ch_21$IM6YY<2021 |
+                               nga_ch_21$IM6Z1Y<2021 |
+                               nga_ch_21$IM6Z2Y<2021, 1, 0)
+
+#--Food Insecurity & COVID--#
+# 1) Food insecurity: worried about not having enough food to eat because of a lack of money or other resources
+nga_ch_21$FE1[nga_ch_21$FE1>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE1"] <- "food1_20"
+nga_ch_21$food1_20[nga_ch_21$food1_20==2] <- 0
+# Was this due to COVID-19?
+nga_ch_21$FE1A[nga_ch_21$FE1A>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE1A"] <- "food1_covid"
+nga_ch_21$food1_covid[nga_ch_21$food1_covid==2] <- 0
+# Did this happen during the last month?
+nga_ch_21$FE1B[nga_ch_21$FE1B>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE1B"] <- "food1_21"
+nga_ch_21$food1_21[nga_ch_21$food1_21==2] <- 0
+
+# 2) Food insecurity: were unable to eat healthy and nutritious food because of a lack of money or other resources
+nga_ch_21$FE2[nga_ch_21$FE2>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE2"] <- "food2_20"
+nga_ch_21$food2_20[nga_ch_21$food2_20==2] <- 0
+# Was this due to COVID-19?
+nga_ch_21$FE2A[nga_ch_21$FE2A>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE2A"] <- "food2_covid"
+nga_ch_21$food2_covid[nga_ch_21$food2_covid==2] <- 0
+# Did this happen during the last month?
+nga_ch_21$FE2B[nga_ch_21$FE2B>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE2B"] <- "food2_21"
+nga_ch_21$food2_21[nga_ch_21$food2_21==2] <- 0
+
+# 3) Food insecurity: ate only a few kinds of foods because of a lack of money or other resources
+nga_ch_21$FE3[nga_ch_21$FE3>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE3"] <- "food3_20"
+nga_ch_21$food3_20[nga_ch_21$food3_20==2] <- 0
+# Was this due to COVID-19?
+nga_ch_21$FE3A[nga_ch_21$FE3A>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE3A"] <- "food3_covid"
+nga_ch_21$food3_covid[nga_ch_21$food3_covid==2] <- 0
+# Did this happen during the last month?
+nga_ch_21$FE3B[nga_ch_21$FE3B>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE3B"] <- "food3_21"
+nga_ch_21$food3_21[nga_ch_21$food3_21==2] <- 0
+
+# 4) Food insecurity:  skip a meal because there was not enough money or other resources to get food
+nga_ch_21$FE4[nga_ch_21$FE4>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE4"] <- "food4_20"
+nga_ch_21$food4_20[nga_ch_21$food4_20==2] <- 0
+# Was this due to COVID-19?
+nga_ch_21$FE4A[nga_ch_21$FE4A>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE4A"] <- "food4_covid"
+nga_ch_21$food4_covid[nga_ch_21$food4_covid==2] <- 0
+# Did this happen during the last month?
+nga_ch_21$FE4B[nga_ch_21$FE4B>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE4B"] <- "food4_21"
+nga_ch_21$food4_21[nga_ch_21$food4_21==2] <- 0
+
+# 5) Food insecurity: ate less than you thought you should because of a lack of money or other resources
+nga_ch_21$FE5[nga_ch_21$FE5>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE5"] <- "food5_20"
+nga_ch_21$food5_20[nga_ch_21$food5_20==2] <- 0
+# Was this due to COVID-19?
+nga_ch_21$FE5A[nga_ch_21$FE5A>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE5A"] <- "food5_covid"
+nga_ch_21$food5_covid[nga_ch_21$food5_covid==2] <- 0
+# Did this happen during the last month?
+nga_ch_21$FE5B[nga_ch_21$FE5B>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE5B"] <- "food5_21"
+nga_ch_21$food5_21[nga_ch_21$food5_21==2] <- 0
+
+# 6) Food insecurity: ran out of food because of a lack of money or other resources
+nga_ch_21$FE6[nga_ch_21$FE6>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE6"] <- "food6_20"
+nga_ch_21$food6_20[nga_ch_21$food6_20==2] <- 0
+# Was this due to COVID-19?
+nga_ch_21$FE6A[nga_ch_21$FE6A>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE6A"] <- "food6_covid"
+nga_ch_21$food6_covid[nga_ch_21$food6_covid==2] <- 0
+# Did this happen during the last month?
+nga_ch_21$FE6B[nga_ch_21$FE6B>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE6B"] <- "food6_21"
+nga_ch_21$food6_21[nga_ch_21$food6_21==2] <- 0
+# Intensity: How often did this happen during the last 1 month? Would you say: 1=rarely, 2=sometimes or 3=often?
+nga_ch_21$FE6C[nga_ch_21$FE6C>3] <- NA
+nga_ch_21$food6_int_21 <- ifelse(nga_ch_21$food6_21==1,nga_ch_21$FE6C,0)
+nga_ch_21$FE6C <- NULL
+
+# 7) Food insecurity: were hungry but did not eat because there was not enough money or other resources for food
+nga_ch_21$FE7[nga_ch_21$FE7>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE7"] <- "food7_20"
+nga_ch_21$food7_20[nga_ch_21$food7_20==2] <- 0
+# Was this due to COVID-19?
+nga_ch_21$FE7A[nga_ch_21$FE7A>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE7A"] <- "food7_covid"
+nga_ch_21$food7_covid[nga_ch_21$food7_covid==2] <- 0
+# Did this happen during the last month?
+nga_ch_21$FE7B[nga_ch_21$FE7B>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE7B"] <- "food7_21"
+nga_ch_21$food7_21[nga_ch_21$food7_21==2] <- 0
+# Intensity: How often did this happen during the last 1 month? Would you say: 1=rarely, 2=sometimes or 3=often?
+nga_ch_21$FE7C[nga_ch_21$FE7C>3] <- NA
+nga_ch_21$food7_int_21 <- ifelse(nga_ch_21$food7_21==1,nga_ch_21$FE7C,0)
+nga_ch_21$FE7C <- NULL
+
+# 8) Food insecurity: went without eating for a whole day because of a lack of money or other resources
+nga_ch_21$FE8[nga_ch_21$FE8>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE8"] <- "food8_20"
+nga_ch_21$food8_20[nga_ch_21$food8_20==2] <- 0
+# Was this due to COVID-19?
+nga_ch_21$FE8A[nga_ch_21$FE8A>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE8A"] <- "food8_covid"
+nga_ch_21$food8_covid[nga_ch_21$food8_covid==2] <- 0
+# Did this happen during the last month?
+nga_ch_21$FE8B[nga_ch_21$FE8B>2] <- NA
+names(nga_ch_21)[names(nga_ch_21) == "FE8B"] <- "food8_21"
+nga_ch_21$food8_21[nga_ch_21$food8_21==2] <- 0
+# Intensity: How often did this happen during the last 1 month? Would you say: 1=rarely, 2=sometimes or 3=often?
+nga_ch_21$FE8C[nga_ch_21$FE8C>3] <- NA
+nga_ch_21$food8_int_21 <- ifelse(nga_ch_21$food8_21==1,nga_ch_21$FE8C,0)
+nga_ch_21$FE8C <- NULL
+
+# Food insecurity intensity in 2020
+nga_ch_21$food_20 <- ifelse(nga_ch_21$food1_20==0,0,NA)
+nga_ch_21$food_20[nga_ch_21$food1_20==1] <- 1
+nga_ch_21$food_20[nga_ch_21$food2_20==1] <- 2
+nga_ch_21$food_20[nga_ch_21$food3_20==1] <- 3
+nga_ch_21$food_20[nga_ch_21$food4_20==1] <- 4
+nga_ch_21$food_20[nga_ch_21$food5_20==1] <- 5
+nga_ch_21$food_20[nga_ch_21$food6_20==1] <- 6
+nga_ch_21$food_20[nga_ch_21$food7_20==1] <- 7
+nga_ch_21$food_20[nga_ch_21$food8_20==1] <- 8
+
+# Food insecurity intensity in 2021
+nga_ch_21$food_21 <- ifelse(nga_ch_21$food1_21==0,0,NA)
+nga_ch_21$food_21[nga_ch_21$food1_21==1] <- 1
+nga_ch_21$food_21[nga_ch_21$food2_21==1] <- 2
+nga_ch_21$food_21[nga_ch_21$food3_21==1] <- 3
+nga_ch_21$food_21[nga_ch_21$food4_21==1] <- 4
+nga_ch_21$food_21[nga_ch_21$food5_21==1] <- 5
+nga_ch_21$food_21[nga_ch_21$food6_21==1] <- 6
+nga_ch_21$food_21[nga_ch_21$food7_21==1] <- 7
+nga_ch_21$food_21[nga_ch_21$food8_21==1] <- 8
+
+# Currently attending childhood education
+nga_ch_21$school_21 <- ifelse(nga_ch_21$UB8==1,1,NA)
+nga_ch_21$school_21[nga_ch_21$UB8==2] <- 0
+nga_ch_21$UB8 <- NULL
+
+# On how many days during the last week was the child left alone for more than an hour?
+names(nga_ch_21)[names(nga_ch_21) == "EC3A"] <- "neglect1"
+
+# On how many days during the last week was the child left in care of another child that is less than 10 years old?
+names(nga_ch_21)[names(nga_ch_21) == "EC3B"] <- "neglect2"
+
+# During the past 3 days, did you or any household member older that 15 engaged with: reading books?
+nga_ch_21$reading <- ifelse(nga_ch_21$EC5AY=="Y",0,1)
+nga_ch_21$reading[nga_ch_21$EC5AY=="?"] <- NA
+nga_ch_21$EC5AY <- NULL
+
+# During the past 3 days, did you or any household member older that 15 engaged with: story telling?
+nga_ch_21$story <- ifelse(nga_ch_21$EC5BY=="Y",0,1)
+nga_ch_21$story[nga_ch_21$EC5BY=="?"] <- NA
+nga_ch_21$EC5BY <- NULL
+
+# During the past 3 days, did you or any household member older that 15 engaged with: singing?
+nga_ch_21$singing <- ifelse(nga_ch_21$EC5CY=="Y",0,1)
+nga_ch_21$singing[nga_ch_21$EC5CY=="?"] <- NA
+nga_ch_21$EC5CY <- NULL
+
+# During the past 3 days, did you or any household member older that 15 engaged with: going outside?
+nga_ch_21$outside <- ifelse(nga_ch_21$EC5DY=="Y",0,1)
+nga_ch_21$outside[nga_ch_21$EC5DY=="?"] <- NA
+nga_ch_21$EC5DY <- NULL
+
+# During the past 3 days, did you or any household member older that 15 engaged with: playing?
+nga_ch_21$playing <- ifelse(nga_ch_21$EC5EY=="Y",0,1)
+nga_ch_21$playing[nga_ch_21$EC5EY=="?"] <- NA
+nga_ch_21$EC5EY <- NULL
+
+# How often does the child seem sad or depressed?: 0=Never, 1=Once a year, ..., 4=Daily
+nga_ch_21$depressed <- ifelse(nga_ch_21$EC39==5,0,NA)
+nga_ch_21$depressed[nga_ch_21$EC39==4] <- 1
+nga_ch_21$depressed[nga_ch_21$EC39==3] <- 2
+nga_ch_21$depressed[nga_ch_21$EC39==2] <- 3
+nga_ch_21$depressed[nga_ch_21$EC39==1] <- 4
+nga_ch_21$EC39 <- NULL
+
+# How often does he/she display aggresive behavior?: 0=Not at all, ..., 4=A lot more
+nga_ch_21$depressed <- ifelse(nga_ch_21$EC40==1,0,NA)
+nga_ch_21$depressed[nga_ch_21$EC40==2] <- 1
+nga_ch_21$depressed[nga_ch_21$EC40==3] <- 2
+nga_ch_21$depressed[nga_ch_21$EC40==4] <- 3
+nga_ch_21$depressed[nga_ch_21$EC40==5] <- 4
+nga_ch_21$EC40 <- NULL
+
+# During the last month, have you: spanked or hit your child?
+nga_ch_21$violence_1 <- ifelse(nga_ch_21$UCD2F==1,1,NA)
+nga_ch_21$violence_1[nga_ch_21$UCD2F==2] <- 0
+nga_ch_21$UCD2F <- NULL
+
+# During the last month, have you: spanked or hit your child?
+nga_ch_21$violence_2 <- ifelse(nga_ch_21$UCD2G==1,1,NA)
+nga_ch_21$violence_2[nga_ch_21$UCD2G==2] <- 0
+nga_ch_21$UCD2G <- NULL
+
+# During the last month, have you: called your child dumb, lazy, or another name?
+nga_ch_21$violence_3 <- ifelse(nga_ch_21$UCD2H==1,1,NA)
+nga_ch_21$violence_3[nga_ch_21$UCD2H==2] <- 0
+nga_ch_21$UCD2H <- NULL
+
+# During the last month, have you: hit or slapped your child's face?
+nga_ch_21$violence_4 <- ifelse(nga_ch_21$UCD2I==1,1,NA)
+nga_ch_21$violence_4[nga_ch_21$UCD2I==2] <- 0
+nga_ch_21$UCD2I <- NULL
+
+# During the last month, have you: hit or slapped your child's leg?
+nga_ch_21$violence_5 <- ifelse(nga_ch_21$UCD2J==1,1,NA)
+nga_ch_21$violence_5[nga_ch_21$UCD2J==2] <- 0
+nga_ch_21$UCD2J <- NULL
+
+# During the last month, have you: bitten up your child?
+nga_ch_21$violence_6 <- ifelse(nga_ch_21$UCD2K==1,1,NA)
+nga_ch_21$violence_6[nga_ch_21$UCD2K==2] <- 0
+nga_ch_21$UCD2K <- NULL
+
+# Interview Date
+nga_ch_21$int_day <- nga_ch_21$date <- as.Date(paste(nga_ch_21$UF7Y, nga_ch_21$UF7M, nga_ch_21$UF7D, sep = "-"), format = "%Y-%m-%d")
+nga_ch_21$UF7Y <- NULL
+nga_ch_21$UF7M <- NULL
+nga_ch_21$UF7D <- NULL
+
+# Child abuse
+child_abuse_columns <- c("violence_1", "violence_2", "violence_3", 
+                         "violence_4", "violence_5", "violence_6")
+
+# Create the new indicator in the nga_ch_21 dataset
+nga_ch_21 <- nga_ch_21 %>%
+    mutate(child_abuse = case_when(
+        rowSums(select(., all_of(child_abuse_columns)) == 1, na.rm = TRUE) > 0 ~ 1,  # If any indicator is 1, set to 1
+        rowSums(!is.na(select(., all_of(child_abuse_columns)))) == 0 ~ NA_real_,  # If all indicators are NA, set to NA
+        TRUE ~ 0  # Otherwise, set to 0
+    ))
+
+# Create exclusive social protection variables
+nga_ch_21 <- nga_ch_21 %>%
+  mutate(
+    soc_cash2 = ifelse(soc_cash == 1 & (is.na(soc_pension) | soc_pension == 0) & (is.na(soc_hup) | soc_hup == 0), 1, 0),
+    soc_pension2 = ifelse((is.na(soc_cash) | soc_cash == 0) & soc_pension == 1 & (is.na(soc_hup) | soc_hup == 0), 1, 0),
+    soc_hup2 = ifelse((is.na(soc_cash) | soc_cash == 0) & (is.na(soc_pension) | soc_pension == 0) & soc_hup == 1, 1, 0)
+  )
+
+# Compute soc_pro variable considering NA values
+nga_ch_21 <- nga_ch_21 %>%
+  mutate(
+    soc_pro2 = rowSums(select(., soc_cash, soc_pension, soc_hup), na.rm = TRUE),
+    soc_pro = ifelse(is.na(soc_cash) & is.na(soc_pension) & is.na(soc_hup), NA, soc_pro)
+  )
+
+
+```
+
+D.2 Remove additional data sets
+```{r}
+rm (nga_ch_16, nga_hh_16, nga_hl_16, nga_mn_16, nga_wm_16, nga_mn_21, geocode_16, nga_ch_21, nga_wm_21)
+```
+
+D.3 Extract Soil Moisture Values for Each Household (2018-2021)
+```{r}
+# Load necessary libraries
+library(sf)
+library(raster)
+library(dplyr)
+
+# Check if the soil moisture stack exists
+if (exists("soil_moisture_stack")) {
+  
+  # Convert nga_hl_21 to an sf object
+  nga_hl_21_sf <- st_as_sf(nga_hl_21, coords = c("longitude", "latitude"), crs = 4326)
+  
+  # Extract soil moisture values for each household's location
+  soil_moisture_values <- extract(soil_moisture_stack, as(nga_hl_21_sf, "Spatial"))
+  
+  # Check if extraction was successful
+  print(head(soil_moisture_values))
+  
+  if (!is.null(soil_moisture_values) && ncol(soil_moisture_values) > 0) {
+    # Convert to a data frame and ensure unique column names
+    soil_moisture_df <- as.data.frame(soil_moisture_values)
+    colnames(soil_moisture_df) <- paste0("soil_moisture_", seq_len(ncol(soil_moisture_df)))
+    
+    # Bind soil moisture data to household data
+    nga_hl_21 <- cbind(nga_hl_21, soil_moisture_df)
+    
+    # Manually rename soil moisture variables for each year
+    soil_moisture_vars <- c(
+      # Soil moisture for 2018
+      "soil_moisture_1" = "soil_2018_01",
+      "soil_moisture_2" = "soil_2018_02",
+      "soil_moisture_3" = "soil_2018_03",
+      "soil_moisture_4" = "soil_2018_04",
+      "soil_moisture_5" = "soil_2018_05",
+      "soil_moisture_6" = "soil_2018_06",
+      "soil_moisture_7" = "soil_2018_07",
+      "soil_moisture_8" = "soil_2018_08",
+      "soil_moisture_9" = "soil_2018_09",
+      "soil_moisture_10" = "soil_2018_10",
+      "soil_moisture_11" = "soil_2018_11",
+      "soil_moisture_12" = "soil_2018_12",
+      # Soil moisture for 2019
+      "soil_moisture_13" = "soil_2019_01",
+      "soil_moisture_14" = "soil_2019_02",
+      "soil_moisture_15" = "soil_2019_03",
+      "soil_moisture_16" = "soil_2019_04",
+      "soil_moisture_17" = "soil_2019_05",
+      "soil_moisture_18" = "soil_2019_06",
+      "soil_moisture_19" = "soil_2019_07",
+      "soil_moisture_20" = "soil_2019_08",
+      "soil_moisture_21" = "soil_2019_09",
+      "soil_moisture_22" = "soil_2019_10",
+      "soil_moisture_23" = "soil_2019_11",
+      "soil_moisture_24" = "soil_2019_12",
+      # Soil moisture for 2020
+      "soil_moisture_25" = "soil_2020_01",
+      "soil_moisture_26" = "soil_2020_02",
+      "soil_moisture_27" = "soil_2020_03",
+      "soil_moisture_28" = "soil_2020_04",
+      "soil_moisture_29" = "soil_2020_05",
+      "soil_moisture_30" = "soil_2020_06",
+      "soil_moisture_31" = "soil_2020_07",
+      "soil_moisture_32" = "soil_2020_08",
+      "soil_moisture_33" = "soil_2020_09",
+      "soil_moisture_34" = "soil_2020_10",
+      "soil_moisture_35" = "soil_2020_11",
+      "soil_moisture_36" = "soil_2020_12",
+      # Soil moisture for 2021
+      "soil_moisture_37" = "soil_2021_01",
+      "soil_moisture_38" = "soil_2021_02",
+      "soil_moisture_39" = "soil_2021_03",
+      "soil_moisture_40" = "soil_2021_04",
+      "soil_moisture_41" = "soil_2021_05",
+      "soil_moisture_42" = "soil_2021_06",
+      "soil_moisture_43" = "soil_2021_07",
+      "soil_moisture_44" = "soil_2021_08",
+      "soil_moisture_45" = "soil_2021_09",
+      "soil_moisture_46" = "soil_2021_10",
+      "soil_moisture_47" = "soil_2021_11",
+      "soil_moisture_48" = "soil_2021_12"
+    )
+    
+    # Rename columns manually to avoid duplication issues
+    for (old_name in names(soil_moisture_vars)) {
+      new_name <- soil_moisture_vars[[old_name]]
+      names(nga_hl_21)[names(nga_hl_21) == old_name] <- new_name
+    }
+    
+    # Calculate yearly averages for soil moisture for each unique geocode
+    nga_hl_21 <- nga_hl_21 %>%
+      mutate(
+        soil_2018_avg = rowMeans(dplyr::select(., starts_with("soil_2018_")), na.rm = TRUE),
+        soil_2019_avg = rowMeans(dplyr::select(., starts_with("soil_2019_")), na.rm = TRUE),
+        soil_2020_avg = rowMeans(dplyr::select(., starts_with("soil_2020_")), na.rm = TRUE),
+        soil_2021_avg = rowMeans(dplyr::select(., starts_with("soil_2021_")), na.rm = TRUE)
+      )
+    
+    # Group by unique geocode and calculate average soil moisture per year
+    average_soil_moisture <- nga_hl_21 %>%
+      group_by(longitude, latitude) %>%
+      summarise(
+        soil_2018_avg = mean(soil_2018_avg, na.rm = TRUE),
+        soil_2019_avg = mean(soil_2019_avg, na.rm = TRUE),
+        soil_2020_avg = mean(soil_2020_avg, na.rm = TRUE),
+        soil_2021_avg = mean(soil_2021_avg, na.rm = TRUE),
+        .groups = 'drop'
+      )
+    
+    # Merge the yearly averages back with the original data
+    nga_hl_21 <- left_join(nga_hl_21, average_soil_moisture, by = c("longitude", "latitude"))
+    
+    # Save the processed data for further analysis
+    save(nga_hl_21, file = "processed_nga_hl_21.RData")
+    
+  } else {
+    print("Soil moisture extraction failed. Please check the raster files and extraction process.")
+  }
+}
+
+```
+
+D.4 Extract Rainfall Values for Each Household (2011-2021)
+```{r}
+# Load necessary libraries
+library(sf)
+library(raster)
+library(dplyr)
+
+# Check if the rainfall stack exists
+if (exists("rainfall_stack")) {
+  
+  # Convert nga_hl_21 to an sf object
+  nga_hl_21_sf <- st_as_sf(nga_hl_21, coords = c("longitude", "latitude"), crs = 4326)
+  
+  # Extract rainfall values for each household's location
+  rainfall_values <- extract(rainfall_stack, as(nga_hl_21_sf, "Spatial"))
+  
+  # Check if extraction was successful
+  print(head(rainfall_values))
+  
+  if (!is.null(rainfall_values) && ncol(rainfall_values) > 0) {
+    # Convert to a data frame and ensure unique column names
+    rainfall_df <- as.data.frame(rainfall_values)
+    colnames(rainfall_df) <- paste0("rainfall_", seq_len(ncol(rainfall_df)))
+    
+    # Bind rainfall data to household data
+    nga_hl_21 <- cbind(nga_hl_21, rainfall_df)
+    
+    # Manually rename rainfall variables for each year from 2011 to 2021
+    rainfall_vars <- setNames(
+      paste0("rain_", rep(2011:2021, each = 12), "_", sprintf("%02d", rep(1:12, times = 11))),
+      paste0("rainfall_", seq_len(11 * 12))
+    )
+    
+    # Rename columns manually to avoid duplication issues
+    for (old_name in names(rainfall_vars)) {
+      new_name <- rainfall_vars[[old_name]]
+      names(nga_hl_21)[names(nga_hl_21) == old_name] <- new_name
+    }
+    
+    # Calculate yearly averages for rainfall from 2011 to 2021
+    nga_hl_21 <- nga_hl_21 %>%
+      mutate(
+        rain_2011_avg = rowMeans(dplyr::select(., starts_with("rain_2011_")), na.rm = TRUE),
+        rain_2012_avg = rowMeans(dplyr::select(., starts_with("rain_2012_")), na.rm = TRUE),
+        rain_2013_avg = rowMeans(dplyr::select(., starts_with("rain_2013_")), na.rm = TRUE),
+        rain_2014_avg = rowMeans(dplyr::select(., starts_with("rain_2014_")), na.rm = TRUE),
+        rain_2015_avg = rowMeans(dplyr::select(., starts_with("rain_2015_")), na.rm = TRUE),
+        rain_2016_avg = rowMeans(dplyr::select(., starts_with("rain_2016_")), na.rm = TRUE),
+        rain_2017_avg = rowMeans(dplyr::select(., starts_with("rain_2017_")), na.rm = TRUE),
+        rain_2018_avg = rowMeans(dplyr::select(., starts_with("rain_2018_")), na.rm = TRUE),
+        rain_2019_avg = rowMeans(dplyr::select(., starts_with("rain_2019_")), na.rm = TRUE),
+        rain_2020_avg = rowMeans(dplyr::select(., starts_with("rain_2020_")), na.rm = TRUE),
+        rain_2021_avg = rowMeans(dplyr::select(., starts_with("rain_2021_")), na.rm = TRUE)
+      )
+    
+    # Group by unique geocode and calculate average rainfall per year
+    average_rainfall <- nga_hl_21 %>%
+      group_by(longitude, latitude) %>%
+      summarise(
+        rain_2011_avg = mean(rain_2011_avg, na.rm = TRUE),
+        rain_2012_avg = mean(rain_2012_avg, na.rm = TRUE),
+        rain_2013_avg = mean(rain_2013_avg, na.rm = TRUE),
+        rain_2014_avg = mean(rain_2014_avg, na.rm = TRUE),
+        rain_2015_avg = mean(rain_2015_avg, na.rm = TRUE),
+        rain_2016_avg = mean(rain_2016_avg, na.rm = TRUE),
+        rain_2017_avg = mean(rain_2017_avg, na.rm = TRUE),
+        rain_2018_avg = mean(rain_2018_avg, na.rm = TRUE),
+        rain_2019_avg = mean(rain_2019_avg, na.rm = TRUE),
+        rain_2020_avg = mean(rain_2020_avg, na.rm = TRUE),
+        rain_2021_avg = mean(rain_2021_avg, na.rm = TRUE),
+        .groups = 'drop'
+      )
+    
+    # Merge the yearly averages back with the original data
+    nga_hl_21 <- left_join(nga_hl_21, average_rainfall, by = c("longitude", "latitude"))
+    
+    # Save the processed data for further analysis
+    save(nga_hl_21, file = "processed_nga_hl_21_rainfall_2011_2021.RData")
+    
+  } else {
+    print("Rainfall extraction failed. Please check the raster files and extraction process.")
+  }
+}
+
+```
+
+D.5 Calculate Treatment = Conflict Zone (exposure time x distance)
+```{r}
+# Load necessary libraries
+library(sf)
+library(lubridate)
+library(dplyr)
+library(units)
+
+# =========================
+# Parameters to Adjust
+# =========================
+buffer_km <-  5      # Buffer distance in kilometers
+num_months <- 12     # Time frame in months
+
+# Convert buffer distance to meters for projected CRS
+buffer_distance <- buffer_km * 1000  # Convert km to meters
+
+# Calculate time window in days
+time_window_days <- num_months * 30  # Approximate days per month
+
+# =========================
+# 1. Convert Data Frames to sf Objects
+# =========================
+nga_hl_21_sf <- st_as_sf(nga_hl_21, coords = c("longitude", "latitude"), crs = 4326)
+nga_hl_21_sf$interview_date <- as.Date(nga_hl_21$int_day, format = "%Y-%m-%d")
+
+# Prepare and filter the conflict data
+conf_nga_clean <- conf_nga %>%
+  filter(!is.na(longitude) & !is.na(latitude) & !is.na(date)) %>%
+  mutate(date = as.Date(date))
+
+conf_nga_sf <- st_as_sf(conf_nga_clean, coords = c("longitude", "latitude"), crs = 4326)
+
+# =========================
+# 2. Transform to Projected CRS for Accurate Distance Calculations
+# =========================
+projected_crs <- 32632  # UTM Zone 32N
+nga_hl_21_sf_proj <- st_transform(nga_hl_21_sf, crs = projected_crs)
+conf_nga_sf_proj <- st_transform(conf_nga_sf, crs = projected_crs)
+
+# =========================
+# 3. Find All Conflicts Within Buffer Distance
+# =========================
+# Use st_is_within_distance to get indices of conflicts within buffer distance
+conflict_indices <- st_is_within_distance(nga_hl_21_sf_proj, conf_nga_sf_proj, dist = buffer_distance)
+
+# =========================
+# 4. Create a Data Frame Mapping Households to Conflicts
+# =========================
+household_indices <- rep(seq_len(nrow(nga_hl_21_sf_proj)), lengths(conflict_indices))
+conflict_indices_flat <- unlist(conflict_indices)
+
+if (length(conflict_indices_flat) > 0) {
+  # Create data frame of household-conflict pairs
+  household_conflicts <- data.frame(
+    household_index = household_indices,
+    conflict_index = conflict_indices_flat
+  )
+  
+  # Add interview and conflict dates
+  household_conflicts <- household_conflicts %>%
+    left_join(
+      data.frame(
+        household_index = seq_len(nrow(nga_hl_21_sf_proj)),
+        interview_date = nga_hl_21_sf_proj$interview_date
+      ),
+      by = "household_index"
+    ) %>%
+    left_join(
+      data.frame(
+        conflict_index = seq_len(nrow(conf_nga_sf_proj)),
+        conflict_date = conf_nga_sf_proj$date
+      ),
+      by = "conflict_index"
+    )
+  
+  # =========================
+  # 5. Calculate Time Difference Between Conflict Date and Interview Date
+  # =========================
+  household_conflicts$time_diff <- as.numeric(difftime(
+    household_conflicts$interview_date,
+    household_conflicts$conflict_date,
+    units = "days"
+  ))
+  
+  # =========================
+  # 6. Filter Conflicts Within the Time Frame
+  # =========================
+  household_conflicts <- household_conflicts %>%
+    filter(time_diff >= 0 & time_diff <= time_window_days)
+  
+  # =========================
+  # 7. Calculate conf_intensity for Each Household
+  # =========================
+  conf_intensity_df <- household_conflicts %>%
+    group_by(household_index) %>%
+    summarize(conf_intensity = n())
+  
+  # =========================
+  # 8. Assign conf_intensity and Treatment to the Original Data
+  # =========================
+  nga_hl_21$conf_intensity <- 0  # Initialize with zeros
+  nga_hl_21$conf_intensity[conf_intensity_df$household_index] <- conf_intensity_df$conf_intensity
+  nga_hl_21$treatment <- ifelse(nga_hl_21$conf_intensity > 0, 1, 0)
+} else {
+  # If no conflicts are found within the buffer distance and time frame
+  nga_hl_21$conf_intensity <- 0
+  nga_hl_21$treatment <- 0
+}
+
+# =========================
+# 9. View Results
+# =========================
+table(nga_hl_21$conf_intensity)
+table(nga_hl_21$treatment)
+
+```
+
+D.6 Calculate IV = Average Rainfall during X months since interview date
+```{r}
+library(lubridate)
+library(dplyr)
+library(reshape2)
+library(tidyr)
+
+# Define the number of months to consider (you can change this value)
+X <- 12  # For example, average rainfall over the past 6 months
+
+# Ensure the 'date' column is in Date format
+nga_hl_21$date <- as.Date(nga_hl_21$date)
+
+# Add an observation ID to uniquely identify each row
+nga_hl_21$obs_id <- seq_len(nrow(nga_hl_21))
+
+# Get the names of the rainfall variables
+rainfall_vars <- grep("^rain_\\d{4}_\\d{2}$", names(nga_hl_21), value = TRUE)
+
+# Extract the dates from the variable names
+rainfall_dates <- as.Date(paste0(substr(rainfall_vars, 6, 9), "-", substr(rainfall_vars, 11, 12), "-01"))
+
+# Create a data frame mapping variable names to dates
+rainfall_var_dates <- data.frame(variable = rainfall_vars, rainfall_date = rainfall_dates)
+
+# Melt the data to long format
+nga_long <- melt(
+  nga_hl_21,
+  id.vars = c("obs_id", "date"),
+  measure.vars = rainfall_vars,
+  variable.name = "variable",
+  value.name = "rainfall_value"
+)
+
+# Merge the variable dates
+nga_long <- merge(nga_long, rainfall_var_dates, by = "variable")
+
+# Compute the month difference between the interview date and the rainfall date
+nga_long$month_diff <- 12 * (year(nga_long$date) - year(nga_long$rainfall_date)) +
+  (month(nga_long$date) - month(nga_long$rainfall_date))
+
+# Function to assign the lag period based on month difference
+assign_lag <- function(month_diff, X) {
+  if (month_diff >= 1 && month_diff <= X) {
+    return("rainfall_x")
+  } else if (month_diff >= (X + 1) && month_diff <= (2 * X)) {
+    return("rainfall_lag1")
+  } else if (month_diff >= (2 * X + 1) && month_diff <= (3 * X)) {
+    return("rainfall_lag2")
+  } else if (month_diff >= (3 * X + 1) && month_diff <= (4 * X)) {
+    return("rainfall_lag3")
+  } else {
+    return(NA)
+  }
+}
+
+# Apply the function to assign lag periods
+nga_long$lag_period <- mapply(assign_lag, nga_long$month_diff, MoreArgs = list(X = X))
+
+# Filter out rows with NA lag periods
+nga_long_lags <- nga_long[!is.na(nga_long$lag_period), ]
+
+# Compute mean rainfall for each observation and lag period
+rainfall_means <- nga_long_lags %>%
+  group_by(obs_id, lag_period) %>%
+  summarize(mean_rainfall = mean(rainfall_value, na.rm = TRUE)) %>%
+  ungroup()
+
+# Pivot the data to wide format
+rainfall_wide <- rainfall_means %>%
+  pivot_wider(names_from = lag_period, values_from = mean_rainfall)
+
+# Merge the computed rainfall means back into the original data
+nga_hl_21 <- left_join(nga_hl_21, rainfall_wide, by = "obs_id")
+
+```
+
+### 2. Maps ###
+
+Figure 1. Map - Violent Attacks & Soil Moisture
+```{r}
+library(sf)
+library(raster)
+library(rnaturalearth)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(grid)  # Needed for 'unit()' function in theme adjustments
+
+# Load Nigeria boundary
+nigeria <- ne_countries(country = "Nigeria", returnclass = "sf")
+
+# Function to calculate average soil moisture, smooth it, and filter conflicts
+calculate_smooth_soil_moisture_and_conflicts <- function(soil_stack, year_index, conflict_start, conflict_end) {
+  # Calculate the average soil moisture for the year
+  avg_soil_moisture <- mean(soil_stack[[year_index]], na.rm = TRUE)
+
+  # Project the raster to match the CRS of the Nigeria boundary
+  projected_raster <- projectRaster(avg_soil_moisture, crs = st_crs(nigeria)$proj4string)
+
+  # Clip the raster to the Nigeria boundary
+  clipped_raster <- mask(projected_raster, nigeria)
+
+  # Smooth the raster data using bilinear interpolation with a finer resolution
+  smoothed_raster <- disaggregate(clipped_raster, fact = 8, method = 'bilinear')  # Increased smoothing factor
+
+  # Filter conflict data for the next year
+  conflicts_filtered <- conf_nga %>%
+    filter(date >= conflict_start & date <= conflict_end & !is.na(longitude) & !is.na(latitude)) %>%
+    mutate(type = factor("Violent Attacks")) %>%  # Ensure 'type' is a factor
+    st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+
+  list(soil_moisture = smoothed_raster, conflicts = conflicts_filtered)
+}
+
+# Calculate average soil moisture and conflicts for 2018–2020
+soil_conflict_data <- list(
+  calculate_smooth_soil_moisture_and_conflicts(
+    soil_moisture_stack,
+    year_index = 1:12,
+    conflict_start = as.Date("2019-01-01"),
+    conflict_end = as.Date("2019-12-31")
+  ),
+  calculate_smooth_soil_moisture_and_conflicts(
+    soil_moisture_stack,
+    year_index = 13:24,
+    conflict_start = as.Date("2020-01-01"),
+    conflict_end = as.Date("2020-12-31")
+  ),
+  calculate_smooth_soil_moisture_and_conflicts(
+    soil_moisture_stack,
+    year_index = 25:36,
+    conflict_start = as.Date("2021-01-01"),
+    conflict_end = as.Date("2021-12-31")
+  )
+)
+
+# Function to create plot for each year pair
+create_soil_moisture_conflict_plot <- function(data, moisture_year, conflict_year) {
+  raster_df <- as.data.frame(rasterToPoints(data$soil_moisture))
+  value_col <- names(raster_df)[3]  # Assuming the third column contains the raster values
+
+  plot <- ggplot() +
+    geom_sf(data = nigeria, fill = "gray90", color = "gray60") +
+    geom_raster(data = raster_df, aes(x = x, y = y, fill = !!sym(value_col))) +
+    scale_fill_gradient(
+      low = "yellow", high = "blue",
+      name = paste("Soil Moisture (", moisture_year, ")", sep = ""),
+      guide = guide_colorbar(
+        title.position = "top",
+        title.hjust = 0.5
+      )
+    ) +
+    geom_point(
+      data = data$conflicts,
+      aes(
+        x = st_coordinates(geometry)[,1],
+        y = st_coordinates(geometry)[,2],
+        color = type  # Map 'color' to 'type' within aes()
+      ),
+      size = 1.5, shape = 17
+    ) +
+    scale_color_manual(
+      values = c("Violent Attacks" = "red"),
+      name = paste("Violent Attacks (", conflict_year, ")", sep = ""),
+      labels = c(""),  # Empty label to remove text next to the symbol
+      guide = guide_legend(
+        title.position = "top",
+        title.hjust = 0.5
+      )
+    ) +
+    ggtitle(paste("Nigeria: Violent Attacks & Average Soil Moisture (", conflict_year, ")", sep = "")) +
+    theme_minimal() +
+    labs(x = "Longitude", y = "Latitude") +
+    theme(
+      legend.position = "bottom",
+      legend.title.align = 0.5,     # Center-align legend titles
+      legend.text.align = 0.5,
+      legend.spacing.x = unit(1, 'cm')
+    ) +
+    guides(
+      fill = guide_colorbar(
+        title.position = "top",
+        title.hjust = 0.5
+      )
+    )
+
+  return(plot)
+}
+
+# Create and save the maps for soil moisture and conflicts for 2018–2020
+year_pairs <- list(
+  list(moisture_year = "2018", conflict_year = "2019"),
+  list(moisture_year = "2019", conflict_year = "2020"),
+  list(moisture_year = "2020", conflict_year = "2021")
+)
+
+# Generate and save the plots
+for (i in seq_along(year_pairs)) {
+  ggsave(
+    filename = paste0("nga_soil_moisture_conflict_", year_pairs[[i]]$moisture_year, "_", year_pairs[[i]]$conflict_year, ".png"),
+    plot = create_soil_moisture_conflict_plot(
+      soil_conflict_data[[i]],
+      year_pairs[[i]]$moisture_year,
+      year_pairs[[i]]$conflict_year
+    ),
+    width = 12, height = 10, dpi = 300, bg = "white"
+  )
+}
+
+```
+
+Figure 2. Map - Violent Attacks & Rain Fall (2018-2021)
+```{r}
+library(sf)
+library(raster)
+library(rnaturalearth)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(grid)  # Needed for 'unit()' function in theme adjustments
+
+# Load Nigeria boundary
+nigeria <- ne_countries(country = "Nigeria", returnclass = "sf")
+
+# Function to calculate average rainfall, smooth it, and filter conflicts for the same year
+calculate_avg_rainfall_and_conflicts <- function(rainfall_stack, year_index, conflict_start, conflict_end) {
+  # Calculate the average rainfall for the year
+  avg_rainfall <- mean(rainfall_stack[[year_index]], na.rm = TRUE)
+  
+  # Project the raster to match the CRS of the Nigeria boundary
+  projected_raster <- projectRaster(avg_rainfall, crs = st_crs(nigeria)$proj4string)
+  
+  # Clip the raster to the Nigeria boundary
+  clipped_raster <- mask(projected_raster, nigeria)
+  
+  # Smooth the raster data using bilinear interpolation with a finer resolution
+  smoothed_raster <- disaggregate(clipped_raster, fact = 8, method = 'bilinear')
+  
+  # Filter conflict data for the same year
+  conflicts_filtered <- conf_nga %>%
+    filter(date >= conflict_start & date <= conflict_end & !is.na(longitude) & !is.na(latitude)) %>%
+    mutate(type = factor("Violent Attacks")) %>%  # Ensure 'type' is a factor
+    st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+  
+  list(rainfall = smoothed_raster, conflicts = conflicts_filtered)
+}
+
+# Define the years and corresponding indices for the rainfall data
+years <- c("2018", "2019", "2020", "2021")
+
+# Assuming your rainfall_stack has monthly data starting from January 2018
+# Adjust the indices accordingly (each year has 12 months)
+rainfall_conflict_data <- list(
+  calculate_avg_rainfall_and_conflicts(
+    rainfall_stack, 
+    year_index = 1:12, 
+    conflict_start = as.Date("2018-01-01"), 
+    conflict_end = as.Date("2018-12-31")
+  ),
+  calculate_avg_rainfall_and_conflicts(
+    rainfall_stack, 
+    year_index = 13:24, 
+    conflict_start = as.Date("2019-01-01"), 
+    conflict_end = as.Date("2019-12-31")
+  ),
+  calculate_avg_rainfall_and_conflicts(
+    rainfall_stack, 
+    year_index = 25:36, 
+    conflict_start = as.Date("2020-01-01"), 
+    conflict_end = as.Date("2020-12-31")
+  ),
+  calculate_avg_rainfall_and_conflicts(
+    rainfall_stack, 
+    year_index = 37:48, 
+    conflict_start = as.Date("2021-01-01"), 
+    conflict_end = as.Date("2021-12-31")
+  )
+)
+
+# Function to create plot for each year
+create_rainfall_conflict_plot <- function(data, year) {
+  raster_df <- as.data.frame(rasterToPoints(data$rainfall))
+  value_col <- names(raster_df)[3]  # Assuming the third column contains the raster values
+  
+  plot <- ggplot() +
+    geom_sf(data = nigeria, fill = "gray90", color = "gray60") +
+    geom_raster(data = raster_df, aes(x = x, y = y, fill = !!sym(value_col))) +
+    scale_fill_gradient(
+      low = "white", high = "blue",
+      name = paste("Average Annual Rainfall (", year, ")", sep = ""),
+      guide = guide_colorbar(
+        title.position = "top",
+        title.hjust = 0.5
+      )
+    ) +
+    geom_point(
+      data = data$conflicts,
+      aes(
+        x = st_coordinates(geometry)[,1],
+        y = st_coordinates(geometry)[,2],
+        color = type  # Map 'color' to 'type' within aes()
+      ),
+      size = 1.5, shape = 17
+    ) +
+    scale_color_manual(
+      values = c("Violent Attacks" = "red"),
+      name = paste("Violent Attacks (", year, ")", sep = ""),
+      labels = c(""),  # Empty label to remove text next to the symbol
+      guide = guide_legend(
+        title.position = "top",
+        title.hjust = 0.5
+      )
+    ) +
+    ggtitle(paste("Nigeria: Violent Attacks & Average Rainfall (", year, ")", sep = "")) +
+    theme_minimal() +
+    labs(x = "Longitude", y = "Latitude") +
+    theme(
+      legend.position = "bottom",
+      legend.title.align = 0.5,     # Center-align legend titles
+      legend.text.align = 0.5,
+      legend.spacing.x = unit(1, 'cm')
+    ) +
+    guides(
+      fill = guide_colorbar(
+        title.position = "top",
+        title.hjust = 0.5
+      )
+    )
+  
+  return(plot)
+}
+
+# Generate and save the plots for each year
+for (i in seq_along(years)) {
+  ggsave(
+    filename = paste0("nga_rainfall_conflict_", years[i], ".png"),
+    plot = create_rainfall_conflict_plot(rainfall_conflict_data[[i]], years[i]),
+    width = 12, height = 10, dpi = 300, bg = "white"
+  )
+}
+
+```
+
+Figure 3. E.2 Map - Violent Attacks & Food Insecurity (%)
+```{r}
+# Load necessary libraries
+library(rnaturalearth)
+library(ggplot2)
+library(dplyr)
+library(sf)
+library(grid)  # Needed for 'unit()' function in theme adjustments
+
+# Download Nigeria shapefile
+nigeria <- ne_countries(scale = "medium", country = "Nigeria", returnclass = "sf")
+
+# UNICEF MICS Survey data for 2021
+df1_sf <- st_as_sf(nga_hl_21, coords = c("longitude", "latitude"), crs = 4326)
+df1_sf$type <- "MICS Surveyed Households"
+
+# Conflict data for the year 2020
+conf_2020 <- subset(conf_nga, year == 2020)
+
+# Convert the conflict data for 2020 to an sf object
+df2_sf <- st_as_sf(conf_2020, coords = c("longitude", "latitude"), crs = 4326)
+df2_sf$type <- factor("Violent Attacks")  # Ensure 'type' is a factor
+
+# Calculate percentage of food insecurity at each geo-code level
+food_insecurity_pct <- nga_hl_21 %>%
+  group_by(longitude, latitude) %>%
+  summarise(
+    food_insecurity_pct = mean(food3_21, na.rm = TRUE) * 100,
+    .groups = 'drop'  # Ungroup explicitly
+  )
+
+# Convert the percentage data to an sf object
+food_insecurity_sf <- st_as_sf(food_insecurity_pct, coords = c("longitude", "latitude"), crs = 4326)
+
+# Base plot with Nigeria map
+plot <- ggplot() +
+  geom_sf(data = nigeria, fill = "gray90", color = "gray60") +
+  geom_point(
+    data = food_insecurity_sf,
+    aes(
+      x = st_coordinates(geometry)[,1],
+      y = st_coordinates(geometry)[,2],
+      size = food_insecurity_pct,
+      fill = food_insecurity_pct
+    ),
+    shape = 21, color = "white", stroke = 0.05, alpha = 0.7  # Adjusted alpha for better visibility
+  ) +
+  geom_sf(data = nigeria, fill = NA, color = "gray60", lwd = 1) +  # Replot Nigeria border
+  geom_point(
+    data = df2_sf,
+    aes(
+      x = st_coordinates(geometry)[,1],
+      y = st_coordinates(geometry)[,2],
+      color = type  # Map 'color' to 'type' within aes()
+    ),
+    size = 1.5, shape = 17
+  ) +
+  scale_fill_gradientn(
+    colors = c("yellow", "orange", "green", "darkgreen"),  # Color gradient
+    name = "Food Insecurity (%)",
+    guide = guide_colorbar(
+      title.position = "top",
+      title.hjust = 0.5,
+      barwidth = 15,
+      barheight = 1
+    )
+  ) +
+  scale_size(range = c(0.5, 6), guide = NULL) +  # Adjust size to vary smoothly
+  scale_color_manual(
+    values = c("Violent Attacks" = "red"),
+    name = "Violent Attacks (2020)",
+    labels = c(""),  # Empty label to remove text next to the symbol
+    guide = guide_legend(
+      title.position = "top",
+      title.hjust = 0.5
+    )
+  ) +
+  ggtitle("Nigeria: Violent Attacks (2020) & Food Insecurity Percentage (2021)") +
+  theme_minimal() +
+  labs(x = "Longitude", y = "Latitude") +
+  theme(
+    legend.position = "bottom",
+    legend.title.align = 0.5,  # Center-align legend titles
+    legend.text.align = 0.5,
+    legend.spacing.x = unit(1, 'cm')
+  ) +
+  guides(
+    fill = guide_colorbar(
+      title.position = "top",
+      title.hjust = 0.5
+    )
+  )
+
+# Save the plot with a white background and adjusted size
+ggsave(
+  "map_food_insecurity.png",
+  plot,
+  width = 12, height = 10, dpi = 300, bg = "white"
+)
+
+```
+
+### 3. Data Analysis ###
+
+Table 1. Descriptive Statistics
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(units)
+library(survey)
+
+# Subset: Age<20
+nga_hl_21_ch <- subset(nga_hl_21, nga_hl_21$age < 20)
+
+# Convert all haven_labelled variables to numeric
+nga_hl_21_ch <- nga_hl_21_ch %>%
+  mutate(across(where(is.labelled), as.numeric))
+
+
+# Data preparation with a conditional check for units
+nga_hl_21_ch <- nga_hl_21_ch %>%
+  mutate(
+    soc_pro = as.numeric(soc_pro),
+    age = as.numeric(age),
+    female = as.numeric(female),
+    size = as.numeric(size),
+    rural = as.numeric(rural),
+    windex5 = as.numeric(windex5),
+    christian = as.numeric(christian),  # Convert to numeric
+    muslim = as.numeric(muslim),        # Convert to numeric
+    traditional = as.numeric(traditional) # Convert to numeric
+  )
+
+# Define the survey design
+svy_design <- svydesign(ids = ~PSU, 
+                        strata = ~stratum, 
+                        weights = ~weight, 
+                        data = nga_hl_21_ch,
+                        singleunit = "certainty", 
+                        option = "adjust")
+
+# Descriptive labels for the variables
+covariate_labels <- c(
+  "food1_21" = "Food Insecurity: Worried (last month)",
+  "food2_21" = "Food Insecurity: Not eating healthy (last month)",
+  "food3_21" = "Food Insecurity: Ate few kinds of food  (last month)",
+  "food4_21" = "Food Insecurity: Skip a meal (last month)",
+  "food5_21" = "Food Insecurity: Eating less  (last month)",
+  "food6_21" = "Food Insecurity: Ran out of food  (last month)",
+  "food7_21" = "Food Insecurity: Hungry and did not eat (last month)",
+  "food8_21" = "Food Insecurity: A Day Without Eating (last month)",
+  "treatment" = "Living in Conflict Zone (5km)",
+  "soil_2020_avg.x" = "Average Soil Moisture Index (2020)",
+  "soil_2021_avg.x" = "Average Soil Moisture Index (2021)",
+  "rain_2020_avg.x" = "Average Rainfall (2020)",
+  "rain_2021_avg.x" = "Average Rainfall (2021)",
+  "soc_cash2" = "Cash Transfers: N-Power",
+  "soc_hup2" = "Cash Transfers: HUP",
+  "soc_pension2" = "Cash Transfers: Pension",
+  "age" = "Age of Respondent",
+  "female" = "Gender (Female=1; Male=0)",
+  "rural" = "Rural Location (1=Yes; 0=No)",
+  "windex5" = "Wealth Index Quintile",
+  "christian" = "Christian Religion (1=Yes; 0=No)",
+  "muslim" = "Muslim Religion (1=Yes; 0=No)"
+)
+
+# Prepare a list for statistics
+statistics_list <- list()
+
+# Loop over variables to compute statistics
+for (var in names(covariate_labels)) {
+  formula_mean_sd <- as.formula(paste0("~", var))
+  
+  # Calculate statistics
+  mean <- svymean(formula_mean_sd, svy_design, na.rm = TRUE)
+  sd <- sqrt(svyvar(formula_mean_sd, svy_design, na.rm = TRUE))
+  min <- svyquantile(formula_mean_sd, svy_design, 0, na.rm = TRUE, se = FALSE)
+  max <- svyquantile(formula_mean_sd, svy_design, 1, na.rm = TRUE, se = FALSE)
+  
+  # Directly reflect the data used in mean, SD, min, max
+  n <- sum(!is.na(nga_hl_21_ch[[var]]), na.rm = TRUE)
+  
+  statistics_list[[var]] <- data.frame(
+    mean = ifelse(is.na(coef(mean)), NA, coef(mean)),
+    sd = ifelse(is.na(coef(sd)), NA, coef(sd)),
+    min = ifelse(length(coef(min)) == 0, NA, coef(min)),
+    max = ifelse(length(coef(max)) == 0, NA, coef(max)),
+    N = n,
+    stringsAsFactors = FALSE
+  )
+}
+
+# Initialize an empty dataframe for the summary statistics
+summary_stats_df <- data.frame(
+  Variable = character(0),
+  Mean = numeric(0),
+  SD = numeric(0),
+  Min = numeric(0),
+  Max = numeric(0),
+  N = numeric(0)
+)
+
+# Populate the dataframe
+for (var in names(statistics_list)) {
+  stats <- statistics_list[[var]]
+  summary_stats_df <- rbind(summary_stats_df, data.frame(
+    Variable = covariate_labels[var],
+    Mean = stats$mean,
+    SD = stats$sd,
+    Min = stats$min,
+    Max = stats$max,
+    N = stats$N
+  ))
+}
+
+# Save the summary statistics table to a text file
+write.table(summary_stats_df, "T1_Descriptive Stats.txt", row.names = FALSE, sep = "\t", quote = FALSE)
+
+```
+
+Tables 2-4 & Appendix Tables 2-6 (Robustness Checks + Placebo Tests)
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(sf)
+library(survey)
+library(ggplot2)
+library(modelsummary)
+library(broom)
+library(glue)
+library(lmtest)  # For Wald test and F-statistic
+library(htmltools)  # For HTML escaping
+
+# Subset data to include only those under age 20 & soil moisture below the Mean
+nga_hl_21_ch <- subset(nga_hl_21, age < 20 & soil_2020_avg.y <9.6)
+
+# # Continuous Treatment:
+# nga_hl_21_ch$treatment <- nga_hl_21_ch$conf_intensity
+
+# # Excluding Context with Repeated Violence (to improve the exogeneity of the IV)
+# nga_hl_21_ch$T1 <- ifelse(nga_hl_21_ch$conf_intensity>1,NA,nga_hl_21_ch$treatment)
+# nga_hl_21_ch$treatment <- nga_hl_21_ch$T1
+
+# Define outcome variables and their labels
+outcome_labels <- c(
+  food1_21 = "Worried Not Enough Food (last month)",
+  food2_21 = "Not eating healthy (last month)",
+  food3_21 = "Ate few kinds of food (last month)",
+  food4_21 = "Skip a meal (last month)",
+  food5_21 = "Eating less (last month)",
+  food6_21 = "Ran out of food (last month)",
+  food7_21 = "Hungry and did not eat (last month)",
+  food8_21 = "A Day Without Eating (last month)"
+)
+
+# Create a list of variables needed, excluding soc_pro variables
+variables_needed <- c(
+  "age", "female", "rural", "windex5", "treatment", "christian", "muslim",
+  "rainfall_x", "rainfall_lag1", "rainfall_lag2", "rainfall_lag3",
+  "food1_21", "food2_21", "food3_21", "food4_21", "food5_21", "food6_21", "food7_21", "food8_21"
+)
+
+# Filter for complete cases on variables_needed
+nga_hl_21_ch_filtered <- nga_hl_21_ch %>%
+  filter(complete.cases(select(., all_of(variables_needed))))
+
+# List of rainfall variables to use as IVs
+rainfall_vars <- c("rainfall_x", "rainfall_lag1", "rainfall_lag2", "rainfall_lag3")
+
+# List of social protection variables and their labels
+variables_list <- c("soc_cash2", "soc_hup2", "soc_pension2")
+labels_list <- c("Cash Transfers: N-Power", "Cash Transfers: HUP", "Pension")
+
+# Loop over rainfall variables
+for (rain_var in rainfall_vars) {
+  
+  # Within each rainfall variable, loop over social protection variables
+  for (i in 1:length(variables_list)) {
+    soc_var <- variables_list[i]
+    soc_label <- labels_list[i]
+    
+    # Filter data for complete cases on current social protection variable
+    data_current <- nga_hl_21_ch_filtered %>%
+      filter(complete.cases(.data[[soc_var]]))
+    
+    # Initialize an empty data frame to collect plot data for this social protection variable
+    plot_data_soc <- data.frame()
+    
+    # Set the global option for handling strata with one PSU
+    options(survey.lonely.psu = "adjust")
+    
+    # Define survey design
+    svy_design <- svydesign(
+      ids = ~PSU, 
+      strata = ~stratum, 
+      weights = ~weight, 
+      data = data_current,
+      nest = TRUE
+    )
+    
+    # Loop through each outcome variable to fit IV models and save regression tables
+    for (outcome_var in names(outcome_labels)) {
+      
+      complete_cases <- data_current %>%
+        filter(!is.na(!!sym(outcome_var)))
+      
+      # Define survey design for complete cases
+      svy_design_complete <- svydesign(
+        ids = ~PSU, 
+        strata = ~stratum, 
+        weights = ~weight, 
+        data = complete_cases,
+        nest = TRUE
+      )
+      
+      # First stage without interaction
+      iv_formula_1st_stage_no_interaction <- as.formula(paste("treatment ~", rain_var, "+ age + female + rural + windex5 + christian + muslim"))
+      
+      # First stage with interaction
+      iv_formula_1st_stage_interaction <- as.formula(paste("treatment ~", rain_var, "*", soc_var, "+ age + female + rural + windex5 + christian + muslim"))
+      
+      # Fit the first stage models using svyivreg
+      first_stage_no_interaction <- svyivreg(iv_formula_1st_stage_no_interaction, design = svy_design_complete)
+      first_stage_interaction <- svyivreg(iv_formula_1st_stage_interaction, design = svy_design_complete)
+      
+      # Calculate the F-statistics for the first stage without interaction
+      wald_test_no_interaction <- regTermTest(first_stage_no_interaction, as.formula(paste("~", rain_var)), method = "Wald")
+      f_stat_no_interaction <- wald_test_no_interaction$Ftest[1]
+      
+      # Calculate the F-statistics for the first stage with interaction
+      wald_test_rain <- regTermTest(first_stage_interaction, as.formula(paste("~", rain_var)), method = "Wald")
+      f_stat_rain <- wald_test_rain$Ftest[1]
+      
+      interaction_term <- paste0(rain_var, ":", soc_var)
+      wald_test_interaction <- regTermTest(first_stage_interaction, as.formula(paste("~", interaction_term)), method = "Wald")
+      f_stat_interaction <- wald_test_interaction$Ftest[1]
+      
+      # Ensure the F-statistics are correctly calculated
+      print(paste("F-statistic for", rain_var, "(No Interaction):", f_stat_no_interaction))
+      print(paste("F-statistic for", rain_var, "(With Interaction):", f_stat_rain))
+      print(paste("F-statistic for", rain_var, "*", soc_var, ":", f_stat_interaction))
+      
+      # Second stage models with different specifications
+      iv_formula_2nd_stage_1 <- as.formula(paste(outcome_var, "~ treatment + age + female + rural + windex5 + christian + muslim |", rain_var, "+ age + female + rural + windex5 + christian + muslim"))
+      iv_formula_2nd_stage_2 <- as.formula(paste(outcome_var, "~ treatment +", soc_var, "+ age + female + rural + windex5 + christian + muslim |", rain_var, "+", soc_var, "+ age + female + rural + windex5 + christian + muslim"))
+      iv_formula_2nd_stage_3 <- as.formula(paste(outcome_var, "~ treatment *", soc_var, "+ age + female + rural + windex5 + christian + muslim |", rain_var, "*", soc_var, "+", rain_var, "+ age + female + rural + windex5 + christian + muslim"))
+      
+      # Fit the models using svyivreg
+      second_stage_1 <- svyivreg(iv_formula_2nd_stage_1, design = svy_design_complete)
+      second_stage_2 <- svyivreg(iv_formula_2nd_stage_2, design = svy_design_complete)
+      second_stage_3 <- svyivreg(iv_formula_2nd_stage_3, design = svy_design_complete)
+      
+      # Define the model names
+      model_names <- c(
+        "Conflict Zone (1st Stage)",
+        paste(outcome_labels[outcome_var], "(2nd Stage)"),
+        "Conflict Zone (1st Stage)"
+      )
+      
+      # Define the model list for exporting
+      models <- list(
+        first_stage_no_interaction,
+        second_stage_1,
+        second_stage_2,
+        # Exclude the 4th model
+        # first_stage_interaction,
+        second_stage_3
+      )
+      
+      # Name the models, consolidating stages under a single label
+      names(models) <- c(model_names[1], model_names[2], model_names[2], model_names[2])
+      
+      # Define the coefficient names and values separately
+      coef_values <- c(
+        paste("Rainfall (", rain_var, ")", sep=""), 
+        "Conflict Zone",
+        soc_label,
+        paste0("Conflict Zone x ", soc_label)
+      )
+      
+      coef_names <- c(
+        rain_var,
+        "treatment",
+        soc_var,
+        paste0("treatment:", soc_var)
+      )
+      
+      # Create the coefficient map using setNames()
+      coef_map <- setNames(coef_values, coef_names)
+      
+      # Generate the table including the interaction term
+      output_filename <- paste0("IV_Table_", outcome_var, "_", soc_var, "_IV_", rain_var, ".html")
+      modelsummary(models,
+                   coef_map = coef_map,
+                   coef_omit = "^(Intercept)$|^age$|^female$|^rural$|^windex5$|^christian$|^muslim$",
+                   statistic = "({std.error})", 
+                   estimate = "{estimate}{stars}",
+                   gof_omit = "^AIC|BIC|Log.Lik|F$",
+                   stars = c('*' = 0.1, '**' = 0.05, '***' = 0.01),
+                   output = output_filename)
+      
+      # Properly escape special characters in the outcome label and title
+      table_title <- sprintf("<h2>Effect of Conflict on %s using %s as IV</h2>", htmlEscape(outcome_labels[[outcome_var]]), rain_var)
+      
+      # Insert the title at the top of the HTML file
+      html_file <- output_filename
+      content <- readLines(html_file)
+      content <- c(table_title, content)  # Add the title to the top
+      writeLines(content, html_file)  # Write the updated content back to the file
+      
+      # Append the F-statistics to the HTML file
+      cat(paste0('<p style="text-align: left;"><b>F-statistic (', rain_var, ', No Interaction):</b> ', round(f_stat_no_interaction, 2), '</p>'), 
+          file = html_file, append = TRUE)
+      cat(paste0('<p style="text-align: left;"><b>F-statistic (', rain_var, '):</b> ', round(f_stat_rain, 2), '</p>'), 
+          file = html_file, append = TRUE)
+      cat(paste0('<p style="text-align: left;"><b>F-statistic (', rain_var, ' x ', htmlEscape(soc_label), '):</b> ', round(f_stat_interaction, 2), '</p>'), 
+          file = html_file, append = TRUE)
+      
+      # Append the notes to the HTML file and align them to the left
+      cat('<p style="text-align: left;"><b>Note:</b> Coefficients are calculated using 2SLS with robust SE. *p<0.1; **p<0.05; ***p<0.01</p>', 
+          file = html_file, append = TRUE)
+      
+      # --- Plotting Section ---
+      
+      # Prepare data for coefficient plots
+      plot_data <- tidy(second_stage_3) %>%
+        dplyr::filter(term %in% c("treatment", paste0("treatment:", soc_var))) %>%
+        dplyr::mutate(
+          Effect = case_when(
+            term == "treatment" ~ "Conflict Zone",
+            term == paste0("treatment:", soc_var) ~ paste0("Conflict Zone x ", soc_label)
+          ),
+          SE = std.error * 100,  # Scale standard errors by 100
+          Coefficient = estimate * 100,  # Scale coefficients by 100
+          Outcome = outcome_labels[[outcome_var]]
+        )
+      
+      # Append to the plot_data_soc for this social protection variable
+      plot_data_soc <- bind_rows(plot_data_soc, plot_data)
+    }
+    
+    # --- Create the Plot for this Social Protection Variable ---
+    
+    # Create a combined label for the y-axis
+    plot_data_soc <- plot_data_soc %>%
+      mutate(
+        CoefficientName = paste(Outcome, "-", Effect)
+      )
+    
+    # Create the plot
+    plot <- ggplot(plot_data_soc, aes(x = Coefficient, y = CoefficientName)) +
+      geom_point(size = 2.5, color = "black") +
+      geom_errorbarh(aes(xmin = Coefficient - 1.96 * SE, xmax = Coefficient + 1.96 * SE), 
+                     height = 0.15, color = "black") +
+      labs(title = paste("Estimated Effects for Food Security Indicators\n", soc_label, " using IV:", rain_var),
+           x = "Coefficient (Percentage Points) with 95% CI",
+           y = "") +
+      theme_minimal() +
+      theme(
+        axis.text.y = element_text(size = 12, lineheight = 0.7),
+        plot.margin = margin(t = 5, r = 5, b = 5, l = 5)
+      )
+    
+    # Save the plot
+    plot_filename <- paste0("coefficients_plot_", soc_var, "_IV_", rain_var, ".png")
+    ggsave(plot_filename, plot = plot, width = 12, height = 10)
+    
+  } # end of soc_var loop
+} # end of rain_var loop
+
+```
+
+Appendix Table 1. Descriptive Statistics
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(units)
+library(survey)
+
+# Subset Age<20 & Drop Top Quartile of Soil Moisture (Focus on Conflict Zones)
+nga_hl_21_ch <- subset(nga_hl_21, nga_hl_21$age < 20 & soil_2020_avg.x<9.6)
+
+# Convert all haven_labelled variables to numeric
+nga_hl_21_ch <- nga_hl_21_ch %>%
+  mutate(across(where(is.labelled), as.numeric))
+
+# Data preparation with a conditional check for units
+nga_hl_21_ch <- nga_hl_21_ch %>%
+  mutate(
+    soc_pro = as.numeric(soc_pro),
+    age = as.numeric(age),
+    female = as.numeric(female),
+    size = as.numeric(size),
+    rural = as.numeric(rural),
+    windex5 = as.numeric(windex5),
+    christian = as.numeric(christian),  # Convert to numeric
+    muslim = as.numeric(muslim),        # Convert to numeric
+    traditional = as.numeric(traditional) # Convert to numeric
+  )
+
+# Set the global option for handling strata with one PSU
+options(survey.lonely.psu = "adjust")
+
+# Define survey design
+svy_design <- svydesign(
+  ids = ~PSU, 
+  strata = ~stratum, 
+  weights = ~weight, 
+  data = nga_hl_21_ch,
+  nest = TRUE
+)
+
+# Descriptive labels for the variables
+covariate_labels <- c(
+  "food1_21" = "Food Insecurity: Worried (last month)",
+  "food2_21" = "Food Insecurity: Not eating healthy (last month)",
+  "food3_21" = "Food Insecurity: Ate few kinds of food  (last month)",
+  "food4_21" = "Food Insecurity: Skip a meal (last month)",
+  "food5_21" = "Food Insecurity: Eating less  (last month)",
+  "food6_21" = "Food Insecurity: Ran out of food  (last month)",
+  "food7_21" = "Food Insecurity: Hungry and did not eat (last month)",
+  "food8_21" = "Food Insecurity: A Day Without Eating (last month)",
+  "treatment" = "Living in Conflict Zone (5km)",
+  "soil_2020_avg.x" = "Average Soil Moisture Index (2020)",
+  "soil_2021_avg.x" = "Average Soil Moisture Index (2021)",
+  "rain_2020_avg.x" = "Average Rainfall (2020)",
+  "rain_2021_avg.x" = "Average Rainfall (2021)",
+  "soc_cash2" = "Cash Transfers: N-Power",
+  "soc_hup2" = "Cash Transfers: HUP",
+  "soc_pension2" = "Cash Transfers: Pension",
+  "age" = "Age of Respondent",
+  "female" = "Gender (Female=1; Male=0)",
+  "rural" = "Rural Location (1=Yes; 0=No)",
+  "windex5" = "Wealth Index Quintile",
+  "christian" = "Christian Religion (1=Yes; 0=No)",
+  "muslim" = "Muslim Religion (1=Yes; 0=No)"
+)
+
+# Prepare a list for statistics
+statistics_list <- list()
+
+# Loop over variables to compute statistics
+for (var in names(covariate_labels)) {
+  formula_mean_sd <- as.formula(paste0("~", var))
+  
+  # Calculate statistics
+  mean <- svymean(formula_mean_sd, svy_design, na.rm = TRUE)
+  sd <- sqrt(svyvar(formula_mean_sd, svy_design, na.rm = TRUE))
+  min <- svyquantile(formula_mean_sd, svy_design, 0, na.rm = TRUE, se = FALSE)
+  max <- svyquantile(formula_mean_sd, svy_design, 1, na.rm = TRUE, se = FALSE)
+  
+  # Directly reflect the data used in mean, SD, min, max
+  n <- sum(!is.na(nga_hl_21_ch[[var]]), na.rm = TRUE)
+  
+  statistics_list[[var]] <- data.frame(
+    mean = ifelse(is.na(coef(mean)), NA, coef(mean)),
+    sd = ifelse(is.na(coef(sd)), NA, coef(sd)),
+    min = ifelse(length(coef(min)) == 0, NA, coef(min)),
+    max = ifelse(length(coef(max)) == 0, NA, coef(max)),
+    N = n,
+    stringsAsFactors = FALSE
+  )
+}
+
+# Initialize an empty dataframe for the summary statistics
+summary_stats_df <- data.frame(
+  Variable = character(0),
+  Mean = numeric(0),
+  SD = numeric(0),
+  Min = numeric(0),
+  Max = numeric(0),
+  N = numeric(0)
+)
+
+# Populate the dataframe
+for (var in names(statistics_list)) {
+  stats <- statistics_list[[var]]
+  summary_stats_df <- rbind(summary_stats_df, data.frame(
+    Variable = covariate_labels[var],
+    Mean = stats$mean,
+    SD = stats$sd,
+    Min = stats$min,
+    Max = stats$max,
+    N = stats$N
+  ))
+}
+
+# Save the summary statistics table to a text file
+write.table(summary_stats_df, "AT1_Descriptive Stats.txt", row.names = FALSE, sep = "\t", quote = FALSE)
+
+```
